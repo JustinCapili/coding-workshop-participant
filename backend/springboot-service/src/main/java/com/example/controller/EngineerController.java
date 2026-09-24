@@ -1,6 +1,7 @@
 package com.example.controller;
 
 import com.example.auth.Caller;
+import com.example.auth.CompanyAccounts;
 import com.example.auth.EmployeeDirectory;
 import com.example.auth.ForbiddenException;
 import com.example.classes.Engineer;
@@ -81,8 +82,9 @@ public class EngineerController {
      *     managing faculty admin
      * @param caller the signed-in faculty admin
      * @param httpRequest the current request, used to build the Location header
-     * @return 201 with the created engineer, 400 for a malformed body, 403 for an engineer or for an
-     *     admin naming another admin's team, or 409 if the employee id is taken
+     * @return 201 with the created engineer, 400 for a malformed body or an email outside
+     *     {@value CompanyAccounts#EMAIL_DOMAIN}, 403 for an engineer or for an admin naming another
+     *     admin's team, or 409 if the employee id or email is taken
      */
     @PostMapping
     public ResponseEntity<EngineerResponse> create(
@@ -92,6 +94,7 @@ public class EngineerController {
     ) {
         caller.requireFacultyAdmin("create engineers");
         FacultyAdminController.validate(request);
+        CompanyAccounts.requireCompanyEmail(request.email());
         String facultyAdminId = request.facultyAdminId();
         boolean managed = facultyAdminId != null && !facultyAdminId.isBlank();
         if (managed) {

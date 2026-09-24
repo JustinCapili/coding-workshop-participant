@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { Navigate, Link as RouterLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
@@ -11,11 +11,13 @@ import Link from '@mui/material/Link'
 import Stack from '@mui/material/Stack'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
+import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import ReportProblemIcon from '@mui/icons-material/ReportProblem'
 import { useAuth } from '../auth/useAuth'
 import { useAsync } from '../hooks/useAsync'
 import { useSubmit } from '../hooks/useSubmit'
 import * as authService from '../services/authService'
+import { COMPANY_DOMAIN, COMPANY_EMAIL_MESSAGE, isCompanyEmail } from '../domain/accounts'
 import { roleLabel } from '../domain/roles'
 
 /** Matches AuthController.MIN_PASSWORD_LENGTH; only enforced when creating an account. */
@@ -24,6 +26,8 @@ const MIN_PASSWORD_LENGTH = 8
 function fieldErrors({ email, password, confirm, registering }) {
   const errors = {}
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) errors.email = 'Enter a valid email'
+  // Only new accounts: existing ones under another address still sign in.
+  else if (registering && !isCompanyEmail(email)) errors.email = COMPANY_EMAIL_MESSAGE
   if (!password) errors.password = 'Password is required'
   else if (registering && password.length < MIN_PASSWORD_LENGTH) {
     errors.password = `Use at least ${MIN_PASSWORD_LENGTH} characters`
@@ -36,8 +40,10 @@ export default function LoginPage() {
   const { user, login, register, sessionExpired } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  // 'signin', or 'register' for the self-service "Create an account" form.
-  const [mode, setMode] = useState('signin')
+  const [searchParams] = useSearchParams()
+  // 'signin', or 'register' for the self-service "Create an account" form, which the landing page
+  // opens directly with /login?mode=register. Read once: switching modes does not touch the URL.
+  const [mode, setMode] = useState(() => (searchParams.get('mode') === 'register' ? 'register' : 'signin'))
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -45,19 +51,19 @@ export default function LoginPage() {
   // Null unless VITE_USE_MOCKS=true; real accounts are never listed.
   const { data: demo } = useAsync(() => authService.listDemoAccounts(), [])
   const registering = mode === 'register'
+  // Post-login routing is role-aware inside /dashboard; honour a deep link if one was saved. A new
+  // account always starts on its dashboard.
+  const destination = registering ? '/dashboard' : (location.state?.from?.pathname ?? '/dashboard')
 
   const [submit, { submitting, error, reset }] = useSubmit(async () => {
-    if (registering) {
-      await register(email, password)
-      navigate('/dashboard', { replace: true })
-      return
-    }
-    await login(email, password)
-    // Post-login routing is role-aware inside /dashboard; honour a deep link if one was saved.
-    navigate(location.state?.from?.pathname ?? '/dashboard', { replace: true })
+    await (registering ? register(email, password) : login(email, password))
+    navigate(destination, { replace: true })
   })
 
-  if (user) return <Navigate to="/dashboard" replace />
+  // Signing in re-renders this page with a user before the navigate() above lands: react-router
+  // applies navigations as transitions, which the auth update overtakes. So this redirect has to
+  // go to the same place, or it wins and a deep link is lost.
+  if (user) return <Navigate to={destination} replace />
 
   const errors = touched ? fieldErrors({ email, password, confirm, registering }) : {}
 
@@ -89,18 +95,28 @@ export default function LoginPage() {
     >
       <Card sx={{ width: '100%', maxWidth: 440 }}>
         <CardContent sx={{ p: { xs: 3, sm: 4 } }}>
-          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+          <Stack direction="row" spacing={1} useFlexGap alignItems="center" sx={{ mb: 1 }}>
             <ReportProblemIcon color="primary" />
             <Typography variant="overline" color="text.secondary">
               ACME Inc.
             </Typography>
+            <Link
+              component={RouterLink}
+              to="/"
+              variant="body2"
+              underline="hover"
+              sx={{ ml: 'auto', display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+            >
+              <ArrowBackIcon fontSize="inherit" />
+              Home
+            </Link>
           </Stack>
           <Typography variant="h4" component="h1" gutterBottom>
             Incident Reports
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
             {registering
-              ? 'Create an account with your employee email to file and follow incident reports.'
+              ? `Create an account with your @${COMPANY_DOMAIN} email to file and follow incident reports.`
               : 'Sign in with your employee email. Your role decides what you see next.'}
           </Typography>
 
@@ -113,7 +129,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 error={Boolean(errors.email)}
-                helperText={errors.email}
+                helperText={errors.email ?? (registering ? `Your @${COMPANY_DOMAIN} address` : '')}
                 required
                 autoFocus
                 disabled={submitting}

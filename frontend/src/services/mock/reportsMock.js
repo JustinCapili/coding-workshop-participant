@@ -463,6 +463,7 @@ export async function declineAssignmentRequest(requestId, admin) {
   if (!isFacultyAdmin(admin)) throw new ApiError(403, 'Only a Faculty Admin can decline requests')
   const request = getDb().assignmentRequests.find((r) => r.requestId === requestId)
   if (!request) throw new ApiError(404, 'Request not found')
+  if (request.status !== 'PENDING') throw new ApiError(409, 'Request already resolved')
   request.status = 'DECLINED'
   addActivity(request.reportId, 'request', admin.employeeId,
     `Declined assignment request from ${getEmployeeSync(request.engineerId).name}`)
@@ -506,6 +507,7 @@ export async function declineCloseRequest(requestId, admin) {
   if (!isFacultyAdmin(admin)) throw new ApiError(403, 'Only a Faculty Admin can decline requests')
   const request = getDb().closeRequests.find((r) => r.requestId === requestId)
   if (!request) throw new ApiError(404, 'Request not found')
+  if (request.status !== 'PENDING') throw new ApiError(409, 'Request already resolved')
   request.status = 'DECLINED'
   addActivity(request.reportId, 'request', admin.employeeId, 'Declined close request')
   commit()

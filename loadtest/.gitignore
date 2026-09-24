@@ -1,0 +1,5 @@
+node_modules/
+# Written by seed.js for each target
+users.json
+# Raw Artillery output; the summaries worth keeping are copied into README.md
+results/

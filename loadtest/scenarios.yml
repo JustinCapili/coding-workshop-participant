@@ -1,0 +1,134 @@
+# Artillery load test for springboot-service. Run through run.js (npm test / npm run smoke), which
+# seeds the accounts, passes --target and the `base` path prefix, records the server's CPU and
+# memory, and checks the thresholds.
+#
+# Each virtual user is one person's short session: sign in once, then a few requests with a pause
+# between them, as the website makes them. Arrival rates are sessions started per second.
+config:
+  processor: ./processor.cjs
+  http:
+    timeout: 30
+  plugins:
+    # Latency and status codes per named request, not only for the run as a whole.
+    metrics-by-endpoint:
+      useOnlyRequestNames: true
+  environments:
+    # A quick check that every scenario works end to end; not a measurement.
+    smoke:
+      phases:
+        - name: smoke
+          duration: 15
+          arrivalRate: 1
+    # The measurement: warm up, ramp, hold, then a short spike above the held rate.
+    load:
+      phases:
+        - name: warm-up
+          duration: 30
+          arrivalRate: 2
+        - name: ramp-up
+          duration: 60
+          arrivalRate: 2
+          rampTo: 10
+        - name: sustained
+          duration: 120
+          arrivalRate: 10
+        - name: spike
+          duration: 30
+          arrivalRate: 20
+
+scenarios:
+  # Staff file most of the traffic: report a problem, look at it, add a detail, check the list.
+  - name: employee files and follows a report
+    weight: 5
+    flow:
+      - function: asEmployee
+      - post:
+          name: POST /auth/login
+          url: "{{ base }}/auth/login"
+          json: { email: "{{ email }}", password: "{{ password }}" }
+          capture: { json: "$.token", as: token }
+      - post:
+          name: POST /reports
+          url: "{{ base }}/reports"
+          headers: { Authorization: "Bearer {{ token }}" }
+          json:
+            title: "{{ title }}"
+            location: Room 204
+            incidentType: IT
+            priority: MEDIUM
+            body: Created by the load test.
+          capture: { json: "$.reportId", as: reportId }
+      - think: 1
+      - get:
+          name: GET /reports/{id}
+          url: "{{ base }}/reports/{{ reportId }}"
+          headers: { Authorization: "Bearer {{ token }}" }
+      - post:
+          name: POST /reports/{id}/comments
+          url: "{{ base }}/reports/{{ reportId }}/comments"
+          headers: { Authorization: "Bearer {{ token }}" }
+          json: { body: Still happening this morning. }
+      - think: 1
+      - get:
+          name: GET /reports
+          url: "{{ base }}/reports"
+          headers: { Authorization: "Bearer {{ token }}" }
+
+  # Engineers read: the open board, one report, the team.
+  - name: engineer browses open reports
+    weight: 3
+    flow:
+      - function: asEngineer
+      - post:
+          name: POST /auth/login
+          url: "{{ base }}/auth/login"
+          json: { email: "{{ email }}", password: "{{ password }}" }
+          capture: { json: "$.token", as: token }
+      - get:
+          name: GET /reports?openOnly
+          url: "{{ base }}/reports?openOnly=true"
+          headers: { Authorization: "Bearer {{ token }}" }
+          capture: { json: "$[0].reportId", as: reportId }
+      - think: 1
+      - get:
+          name: GET /reports/{id}
+          url: "{{ base }}/reports/{{ reportId }}"
+          headers: { Authorization: "Bearer {{ token }}" }
+      - get:
+          name: GET /engineers
+          url: "{{ base }}/engineers"
+          headers: { Authorization: "Bearer {{ token }}" }
+
+  # The admin's dashboard: counts, the approval queue, their engineers.
+  - name: admin checks the dashboard
+    weight: 2
+    flow:
+      - function: asAdmin
+      - post:
+          name: POST /auth/login
+          url: "{{ base }}/auth/login"
+          json: { email: "{{ email }}", password: "{{ password }}" }
+          capture:
+            - { json: "$.token", as: token }
+            - { json: "$.user.employeeId", as: adminId }
+      - get:
+          name: GET /reports/stats
+          url: "{{ base }}/reports/stats"
+          headers: { Authorization: "Bearer {{ token }}" }
+      - get:
+          name: GET /reports/requests
+          url: "{{ base }}/reports/requests?status=PENDING"
+          headers: { Authorization: "Bearer {{ token }}" }
+      - think: 1
+      - get:
+          name: GET /engineers?facultyAdminId
+          url: "{{ base }}/engineers?facultyAdminId={{ adminId }}"
+          headers: { Authorization: "Bearer {{ token }}" }
+
+  # The unauthenticated health check a load balancer or uptime monitor would hit.
+  - name: health check
+    weight: 1
+    flow:
+      - get:
+          name: GET /
+          url: "{{ base }}/"

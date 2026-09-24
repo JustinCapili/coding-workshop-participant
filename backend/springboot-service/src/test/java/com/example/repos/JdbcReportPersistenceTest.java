@@ -55,11 +55,11 @@ class JdbcReportPersistenceTest {
         // The first admin needs no token (bootstrap); the engineer is provisioned by that admin.
         mockMvc.perform(post("/faculty-admins")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"FA1@example.com\",\"password\":\"pw\",\"employeeId\":\"FA1\"}"))
+                .content("{\"email\":\"FA1@acme.inc\",\"password\":\"pw\",\"employeeId\":\"FA1\"}"))
             .andExpect(status().isCreated());
         admin = login("FA1");
         mockMvc.perform(as(admin, post("/engineers"))
-                .content("{\"email\":\"E1@example.com\",\"password\":\"pw\",\"employeeId\":\"E1\","
+                .content("{\"email\":\"E1@acme.inc\",\"password\":\"pw\",\"employeeId\":\"E1\","
                     + "\"facultyAdminId\":\"FA1\"}"))
             .andExpect(status().isCreated());
         engineer = login("E1");
@@ -82,7 +82,7 @@ class JdbcReportPersistenceTest {
 
         mockMvc.perform(as(admin, get("/reports/" + reportId)))
             .andExpect(status().isOk())
-            .andExpect(jsonPath("$.author.email").value("E1@example.com"));
+            .andExpect(jsonPath("$.author.email").value("E1@acme.inc"));
     }
 
     @Test
@@ -164,7 +164,7 @@ class JdbcReportPersistenceTest {
             mockMvc.perform(post("/auth/login")
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(String.format(
-                        "{\"email\":\"%s@example.com\",\"password\":\"pw\"}", employeeId)))
+                        "{\"email\":\"%s@acme.inc\",\"password\":\"pw\"}", employeeId)))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getContentAsString(),
             "$.token");

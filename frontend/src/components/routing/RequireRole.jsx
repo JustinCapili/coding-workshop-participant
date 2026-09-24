@@ -4,10 +4,13 @@ import Button from '@mui/material/Button'
 import { useAuth } from '../../auth/useAuth'
 import { hasRole } from '../../domain/roles'
 
-/** Renders children only for users holding `role` (or a role that inherits from it). */
-export default function RequireRole({ role }) {
+/**
+ * Renders children only for users holding `role` (or a role that inherits from it) and, when given,
+ * passing `when(user)`, such as `isDefaultAdmin` for pages only admin@acme.inc may use.
+ */
+export default function RequireRole({ role, when }) {
   const { user } = useAuth()
-  if (!hasRole(user, role)) {
+  if (!hasRole(user, role) || (when && !when(user))) {
     return (
       <Alert
         severity="warning"

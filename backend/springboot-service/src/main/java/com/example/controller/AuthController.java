@@ -1,6 +1,7 @@
 package com.example.controller;
 
 import com.example.auth.Caller;
+import com.example.auth.CompanyAccounts;
 import com.example.auth.EmployeeDirectory;
 import com.example.auth.ForbiddenException;
 import com.example.auth.TokenService;
@@ -105,13 +106,14 @@ public class AuthController {
      * an account. It only ever creates the EMPLOYEE role; engineers and faculty admins are still
      * provisioned by a faculty admin. The employee id is generated here, not chosen by the caller.
      *
-     * The email must be unused by every kind of account, not only other plain employees, so an
-     * engineer or admin cannot hold a second account under the same address.
+     * The email must be a company address ({@value CompanyAccounts#EMAIL_DOMAIN}), and unused by
+     * every kind of account, not only other plain employees, so an engineer or admin cannot hold a
+     * second account under the same address.
      *
      * @param request the email and password for the new account
      * @return 201 with a token, its expiry and the new employee, as login returns; 400 for a
-     *     malformed email or a password under {@value #MIN_PASSWORD_LENGTH} characters; 409 when an
-     *     account already has that email
+     *     malformed email, one outside {@value CompanyAccounts#EMAIL_DOMAIN}, or a password under
+     *     {@value #MIN_PASSWORD_LENGTH} characters; 409 when an account already has that email
      */
     @PostMapping("/register")
     public ResponseEntity<LoginResponse> register(@RequestBody LoginRequest request) {
@@ -124,6 +126,7 @@ public class AuthController {
         if (!EMAIL.matcher(email).matches()) {
             throw new IllegalArgumentException("email must be a valid email address");
         }
+        CompanyAccounts.requireCompanyEmail(email);
         if (request.password().length() < MIN_PASSWORD_LENGTH) {
             throw new IllegalArgumentException(
                 "password must be at least " + MIN_PASSWORD_LENGTH + " characters");

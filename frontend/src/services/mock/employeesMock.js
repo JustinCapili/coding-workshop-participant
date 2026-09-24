@@ -2,6 +2,7 @@
  * Employee directory: mirrors `EngineerController` (`/engineers`) and `FacultyAdminController`
  * (`/faculty-admins`). Mock-backed today; each function notes the real call it maps to.
  */
+import { COMPANY_EMAIL_REFUSAL, DEFAULT_ADMIN_EMAIL, isCompanyEmail, isDefaultAdmin } from '../../domain/accounts'
 import { Role, Scope } from '../../domain/roles'
 import { ApiError } from '../apiError'
 import { commit, delay, getDb, nextId } from './mockStore'
@@ -77,6 +78,8 @@ export async function createEngineer({ email, facultyAdminId }) {
     existing.facultyAdminId = facultyAdminId
     engineer = { ...toPublic(existing), moved }
   } else {
+    // Only a new account has to be a company address; existing ones keep whatever they have.
+    if (!isCompanyEmail(normalized)) throw new ApiError(400, COMPANY_EMAIL_REFUSAL)
     const record = {
       employeeId: nextId('ENG'),
       email: normalized,
@@ -89,4 +92,53 @@ export async function createEngineer({ email, facultyAdminId }) {
   }
   commit()
   return engineer
+}
+
+/**
+ * Make a plain employee an engineer on the given admin's team, by id. They keep their id, email
+ * and password. Mirrors POST /employees/{employeeId}/promote, including its 404 and 409s.
+ */
+export async function promoteEmployee({ employeeId, facultyAdminId }) {
+  await delay(300)
+  const existing = getDb().employees.find((e) => e.employeeId === employeeId)
+  if (!existing) throw new ApiError(404, `No employee ${employeeId}`)
+  if (existing.role === Role.ENGINEER) throw new ApiError(409, `${employeeId} is already an engineer`)
+  if (existing.role === Role.FACULTY_ADMIN) throw new ApiError(409, `${employeeId} is a faculty admin`)
+
+  existing.role = Role.ENGINEER
+  existing.facultyAdminId = facultyAdminId
+  commit()
+  return { ...toPublic(existing), promoted: true }
+}
+
+/** Plain employees: staff who are neither engineers nor faculty admins. Mirrors GET /employees */
+export async function listEmployees() {
+  await delay(150)
+  return getDb()
+    .employees.filter((e) => e.role === Role.EMPLOYEE)
+    .map(toPublic)
+}
+
+/**
+ * Make a plain employee or an engineer a faculty admin of their own team, by id. Only the default
+ * admin may; `viewer` is the signed-in user, standing in for the backend's bearer token. Mirrors
+ * PUT /faculty-admins/{employeeId}, including its 403 (checked first), 404 and 409.
+ */
+export async function promoteToFacultyAdmin({ employeeId, viewer }) {
+  await delay(300)
+  if (!isDefaultAdmin(viewer)) {
+    throw new ApiError(403, `Only ${DEFAULT_ADMIN_EMAIL} can promote to faculty admin`)
+  }
+  const existing = getDb().employees.find((e) => e.employeeId === employeeId)
+  if (!existing) throw new ApiError(404, `No employee ${employeeId}`)
+  if (existing.role === Role.FACULTY_ADMIN) {
+    throw new ApiError(409, `${employeeId} is already a faculty admin`)
+  }
+
+  // A faculty admin is managed by nobody; the fixtures record an admin's team as their own id.
+  existing.role = Role.FACULTY_ADMIN
+  existing.scope = Scope.TEAM
+  existing.facultyAdminId = existing.employeeId
+  commit()
+  return toPublic(existing)
 }

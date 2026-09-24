@@ -85,7 +85,9 @@ Here below are more details on the technical competencies expectations:
 
 ## Testing Expectations
 
-### Backend Testing
+### Backend Testing3. End-to-3. End-to-End Tests: Test complete user workflows using tools like Cypress or Selenium.
+End Tests: Test complete user workflows using tools like Cypress or Selenium.
+
 
 1. Unit Tests: Test individual Lambda functions in isolation.
 2. Integration Tests: Test API endpoints with actual database connections.

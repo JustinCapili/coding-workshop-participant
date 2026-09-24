@@ -3,6 +3,7 @@
  * directory and issues an opaque fake token. The session is kept in sessionStorage so a refresh
  * does not log the user out.
  */
+import { COMPANY_EMAIL_REFUSAL, isCompanyEmail } from '../../domain/accounts'
 import { Role } from '../../domain/roles'
 import { ApiError } from '../apiError'
 import { nameFromEmail } from '../api/normalize'
@@ -31,7 +32,7 @@ export async function login(email, password) {
 
 /**
  * Self-service sign-up, mirroring POST /auth/register: creates a plain EMPLOYEE on no team and
- * signs them in. The email must be unused by any account, ignoring case.
+ * signs them in. The email must be an @acme.inc address unused by any account, ignoring case.
  */
 export async function register(email, password) {
   await delay(400)
@@ -39,6 +40,7 @@ export async function register(email, password) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
     throw new ApiError(400, 'email must be a valid email address')
   }
+  if (!isCompanyEmail(trimmed)) throw new ApiError(400, COMPANY_EMAIL_REFUSAL)
   if (password.length < 8) throw new ApiError(400, 'password must be at least 8 characters')
   const db = getDb()
   if (db.employees.some((e) => e.email.toLowerCase() === trimmed.toLowerCase())) {
@@ -145,7 +147,7 @@ function clearSession() {
 }
 
 /** The demo accounts surfaced as one-click chips on the login card. */
-const DEMO_EMAILS = ['alice@acme.com', 'bob@acme.com', 'frank@acme.com', 'admin@acme.com']
+const DEMO_EMAILS = ['alice@acme.com', 'bob@acme.com', 'frank@acme.com', 'admin@acme.inc']
 
 export async function listDemoAccounts() {
   return {

@@ -76,7 +76,7 @@ export const employees = [
   },
   {
     employeeId: 'ADM-001',
-    email: 'admin@acme.com',
+    email: 'admin@acme.inc',
     name: 'Ada Whitfield',
     role: Role.FACULTY_ADMIN,
     scope: Scope.ALL,

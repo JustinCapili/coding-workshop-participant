@@ -15,6 +15,9 @@ export default function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [initializing, setInitializing] = useState(true)
   const [sessionExpired, setSessionExpired] = useState(false)
+  // True after the user logged out on purpose. RequireAuth then does not remember the page being
+  // left, so whoever signs in next on this tab starts on their own dashboard.
+  const [signedOut, setSignedOut] = useState(false)
 
   const apply = useCallback((next) => {
     setAuthToken(next?.token ?? null)
@@ -22,12 +25,14 @@ export default function AuthProvider({ children }) {
   }, [])
 
   // Any 401 from the backend (other than a failed sign-in) means the token is no longer good:
-  // drop the session, which sends RequireAuth to /login, where the expiry notice is shown.
+  // drop the session, which sends RequireAuth to /login, where the expiry notice is shown. Not a
+  // deliberate sign-out, so the page is remembered for signing straight back in.
   useEffect(() => {
     setUnauthorizedHandler(() => {
       authService.logout()
       apply(null)
       setSessionExpired(true)
+      setSignedOut(false)
     })
     return () => setUnauthorizedHandler(null)
   }, [apply])
@@ -78,6 +83,7 @@ export default function AuthProvider({ children }) {
       const next = await authService.login(email, password)
       apply(next)
       setSessionExpired(false)
+      setSignedOut(false)
       return next.user
     },
     [apply],
@@ -88,6 +94,7 @@ export default function AuthProvider({ children }) {
       const next = await authService.register(email, password)
       apply(next)
       setSessionExpired(false)
+      setSignedOut(false)
       return next.user
     },
     [apply],
@@ -97,6 +104,7 @@ export default function AuthProvider({ children }) {
     await authService.logout()
     apply(null)
     setSessionExpired(false)
+    setSignedOut(true)
   }, [apply])
 
   const refresh = useCallback(async () => {
@@ -121,13 +129,14 @@ export default function AuthProvider({ children }) {
       token: session?.token ?? null,
       initializing,
       sessionExpired,
+      signedOut,
       login,
       register,
       logout,
       refresh,
       changePassword,
     }),
-    [session, initializing, sessionExpired, login, register, logout, refresh, changePassword],
+    [session, initializing, sessionExpired, signedOut, login, register, logout, refresh, changePassword],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

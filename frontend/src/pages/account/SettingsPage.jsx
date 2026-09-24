@@ -95,7 +95,10 @@ export default function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="Settings" subtitle={`Manage the account you signed in with, ${user.email}.`} />
+      <PageHeader
+        title="Settings"
+        subtitle={`Manage the account you signed in with, ${user.email} (employee ID ${user.employeeId}).`}
+      />
 
       <Grid container spacing={3}>
         <Grid size={{ xs: 12, md: 6 }}>

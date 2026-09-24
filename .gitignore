@@ -240,6 +240,12 @@ Thumbs.db
 # Frontend build artifacts and dependencies
 frontend/node_modules/
 
+# Screenshots and page source the end-to-end suite saves when a test fails
+frontend/e2e/artifacts/
+
+# Personal Claude Code settings
+.claude/settings.local.json
+
 # Keep package.json for participant setup
 !frontend/package.json
 !frontend/README.md

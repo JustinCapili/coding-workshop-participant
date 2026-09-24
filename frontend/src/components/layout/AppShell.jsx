@@ -123,6 +123,10 @@ export default function AppShell() {
               <Typography variant="caption" color="text.secondary">
                 {user.email} · {roleLabel(user)}
               </Typography>
+              {/* Shown so an employee can give it to a faculty admin, who promotes by id. */}
+              <Typography variant="caption" color="text.secondary" display="block">
+                Employee ID {user.employeeId}
+              </Typography>
             </Box>
             <Divider />
             <MenuItem onClick={handleSettings}>

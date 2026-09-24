@@ -129,7 +129,7 @@ class JdbcPersistenceTest {
 
         mockMvc.perform(post("/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"E1@example.com\",\"password\":\"brand-new-pw\"}"))
+                .content("{\"email\":\"E1@acme.inc\",\"password\":\"brand-new-pw\"}"))
             .andExpect(status().isOk());
     }
 
@@ -138,7 +138,7 @@ class JdbcPersistenceTest {
     void registeringWritesAnEmployeeRow() throws Exception {
         String body = mockMvc.perform(post("/auth/register")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"s1@example.com\",\"password\":\"password\"}"))
+                .content("{\"email\":\"s1@acme.inc\",\"password\":\"password\"}"))
             .andExpect(status().isCreated())
             .andReturn().getResponse().getContentAsString();
         String employeeId = com.jayway.jsonpath.JsonPath.read(body, "$.user.employeeId");
@@ -159,6 +159,69 @@ class JdbcPersistenceTest {
         mockMvc.perform(get("/reports").header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
             .andExpect(jsonPath("$[0].incidentType").value("SAFETY"))
             .andExpect(jsonPath("$[0].priority").value("CRITICAL"));
+    }
+
+    @Test
+    @DisplayName("promoting an employee changes the role of the same row, keeping everything else")
+    void promotingUpdatesTheRowInPlace() throws Exception {
+        createAdmin("FA1");
+        String body = mockMvc.perform(post("/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"s1@acme.inc\",\"password\":\"password\"}"))
+            .andExpect(status().isCreated())
+            .andReturn().getResponse().getContentAsString();
+        String employeeId = com.jayway.jsonpath.JsonPath.read(body, "$.user.employeeId");
+        String token = com.jayway.jsonpath.JsonPath.read(body, "$.token");
+        mockMvc.perform(post("/reports")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"Leak\",\"location\":\"Lab\"}"))
+            .andExpect(status().isCreated());
+        String before = rowOf(employeeId);
+
+        mockMvc.perform(as("FA1", post("/employees/" + employeeId + "/promote")))
+            .andExpect(status().isOk());
+
+        // Same row: same creation time and password digest, now an engineer on FA1's team. Had the
+        // row been deleted and re-inserted, created_at would differ and the report would have lost
+        // its author to ON DELETE SET NULL.
+        assertThat(rowOf(employeeId)).isEqualTo(before.replace("|EMPLOYEE|", "|ENGINEER|"));
+        assertThat(facultyAdminIdOf(employeeId)).contains("FA1");
+        assertThat(countOf(employeeId)).isEqualTo(1);
+        assertThat(jdbcClient.sql("SELECT author_id FROM report").query(String.class).single())
+            .isEqualTo(employeeId);
+    }
+
+    @Test
+    @DisplayName("promoting an engineer to faculty admin rewrites the same row and clears its team")
+    void promotingToAdminUpdatesTheRowInPlace() throws Exception {
+        createAdmin("FA1");
+        createEngineer("E1", "FA1");
+        String reportId = com.jayway.jsonpath.JsonPath.read(
+            mockMvc.perform(as("E1", post("/reports"))
+                    .content("{\"title\":\"Leak\",\"location\":\"Lab\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString(),
+            "$.reportId");
+        mockMvc.perform(as("FA1", put("/reports/" + reportId + "/assignees"))
+                .content("{\"engineerIds\":[\"E1\"]}"))
+            .andExpect(status().isOk());
+        String before = rowOf("E1");
+
+        mockMvc.perform(as("FA1", put("/faculty-admins/E1")))
+            .andExpect(status().isOk());
+
+        // Same row, same digest and creation time, now a FACULTY_ADMIN managed by nobody. A delete
+        // and re-insert would have changed created_at and cascaded the assignment away.
+        assertThat(rowOf("E1")).isEqualTo(before.replace("|ENGINEER|", "|FACULTY_ADMIN|"));
+        assertThat(facultyAdminIdOf("E1")).isEmpty();
+        assertThat(countOf("E1")).isEqualTo(1);
+        assertThat(jdbcClient.sql("SELECT author_id FROM report").query(String.class).single())
+            .isEqualTo("E1");
+        assertThat(jdbcClient.sql("SELECT assignee_id FROM report_assignment")
+            .query(String.class).single()).isEqualTo("E1");
+        mockMvc.perform(as("FA1", get("/faculty-admins/FA1/engineers")))
+            .andExpect(jsonPath("$.length()").value(0));
     }
 
     @Test
@@ -274,6 +337,20 @@ class JdbcPersistenceTest {
     }
 
     /**
+     * Reads the columns a promotion must preserve, as one string.
+     *
+     * @param employeeId the employee to look up
+     * @return email, role, password digest and creation time, separated by bars
+     */
+    private String rowOf(String employeeId) {
+        return jdbcClient.sql("SELECT email || '|' || role || '|' || password_hash || '|' || created_at"
+                + " FROM employee WHERE employee_id = :id")
+            .param("id", employeeId)
+            .query(String.class)
+            .single();
+    }
+
+    /**
      * Reads the stored password digest straight from the table.
      *
      * @param employeeId the employee to look up
@@ -309,9 +386,10 @@ class JdbcPersistenceTest {
         MockHttpServletRequestBuilder request = post("/faculty-admins")
             .contentType(MediaType.APPLICATION_JSON)
             .content(String.format(
-                "{\"email\":\"%s@example.com\",\"password\":\"pw\",\"employeeId\":\"%s\"}",
-                employeeId, employeeId));
-        // Only the first admin is created anonymously; each one after is created by the first.
+                "{\"email\":\"%s\",\"password\":\"pw\",\"employeeId\":\"%s\"}",
+                emailOf(employeeId), employeeId));
+        // Only the first admin is created anonymously; each one after is created by the first,
+        // which every test makes FA1, the default admin.
         Optional<String> existing = jdbcClient
             .sql("SELECT employee_id FROM employee WHERE role = 'FACULTY_ADMIN' LIMIT 1")
             .query(String.class)
@@ -340,7 +418,7 @@ class JdbcPersistenceTest {
             .single();
         mockMvc.perform(as(creator, post("/engineers"))
                 .content(String.format(
-                    "{\"email\":\"%s@example.com\",\"password\":\"pw\",\"employeeId\":\"%s\"%s}",
+                    "{\"email\":\"%s@acme.inc\",\"password\":\"pw\",\"employeeId\":\"%s\"%s}",
                     employeeId, employeeId, admin)))
             .andExpect(status().isCreated());
     }
@@ -375,11 +453,22 @@ class JdbcPersistenceTest {
         String body = mockMvc.perform(post("/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(String.format(
-                    "{\"email\":\"%s@example.com\",\"password\":\"pw\"}", employeeId)))
+                    "{\"email\":\"%s\",\"password\":\"pw\"}", emailOf(employeeId))))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString();
         String token = com.jayway.jsonpath.JsonPath.read(body, "$.token");
         tokens.put(employeeId, token);
         return token;
+    }
+
+    /**
+     * The email a test account has: FA1 is the default admin, which is what lets it create further
+     * admins; everyone else is {@code <id>@acme.inc}.
+     *
+     * @param employeeId the account's id
+     * @return its email
+     */
+    private static String emailOf(String employeeId) {
+        return "FA1".equals(employeeId) ? "admin@acme.inc" : employeeId + "@acme.inc";
     }
 }

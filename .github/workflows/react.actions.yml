@@ -25,3 +25,8 @@ jobs:
 
       - name: Run npm audit
         run: npm audit --prefix ./frontend --audit-level=high
+
+      # Jest + React Testing Library, with the 80% coverage threshold. The Selenium suite
+      # (npm run test:e2e) needs the LocalStack stack, so it runs locally, not here.
+      - name: Run unit and component tests
+        run: npm test --prefix ./frontend

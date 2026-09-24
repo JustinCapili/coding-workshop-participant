@@ -2,13 +2,16 @@ package com.example.controller;
 
 import com.example.auth.AllowAnonymous;
 import com.example.auth.Caller;
+import com.example.auth.CompanyAccounts;
 import com.example.auth.EmployeeDirectory;
 import com.example.auth.UnauthorizedException;
+import com.example.classes.Employee;
 import com.example.classes.Engineer;
 import com.example.classes.FacultyAdmin;
 import com.example.model.CreateEmployeeRequest;
 import com.example.model.EngineerResponse;
 import com.example.model.FacultyAdminResponse;
+import com.example.repos.EmployeeRepository;
 import com.example.repos.EngineerRepository;
 import com.example.repos.FacultyAdminRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -30,9 +33,10 @@ import org.springframework.web.bind.annotation.RestController;
 /**
  * Faculty admin endpoints, including the engineers each admin manages.
  *
- * Reading is open to anyone signed in. Creating an admin takes a faculty admin, except for the very
- * first one, and an admin's team is changed only by that admin. Mapped on two base paths for the
- * reason explained in {@link ApiPaths}.
+ * Reading is open to anyone signed in. Making a faculty admin, by creating one or by promoting an
+ * employee or engineer, takes the default admin ({@value CompanyAccounts#DEFAULT_ADMIN_EMAIL}),
+ * except for the very first admin, and an admin's team is changed only by that admin. Mapped on two
+ * base paths for the reason explained in {@link ApiPaths}.
  */
 @RestController
 @RequestMapping({ApiPaths.FACULTY_ADMINS, ApiPaths.CLOUD_PREFIX + ApiPaths.FACULTY_ADMINS})
@@ -44,10 +48,13 @@ public class FacultyAdminController {
     /** Stores the engineers, needed to resolve the ids in assignment requests. */
     private final EngineerRepository engineerRepository;
 
+    /** Stores the plain employees, where a promoted employee is removed from. */
+    private final EmployeeRepository employeeRepository;
+
     /** Hashes incoming passwords so no plaintext is ever stored. */
     private final PasswordEncoder passwordEncoder;
 
-    /** Every kind of employee, for the id-uniqueness check. */
+    /** Every kind of employee, for the id-uniqueness check and for finding whom to promote. */
     private final EmployeeDirectory directory;
 
     /**
@@ -55,17 +62,20 @@ public class FacultyAdminController {
      *
      * @param facultyAdminRepository the repository holding faculty admins
      * @param engineerRepository the repository holding engineers
+     * @param employeeRepository the repository holding plain employees
      * @param passwordEncoder the encoder applied to passwords on the way in
-     * @param directory every kind of employee, for the id-uniqueness check
+     * @param directory every kind of employee, for the id-uniqueness check and promotions
      */
     public FacultyAdminController(
         FacultyAdminRepository facultyAdminRepository,
         EngineerRepository engineerRepository,
+        EmployeeRepository employeeRepository,
         PasswordEncoder passwordEncoder,
         EmployeeDirectory directory
     ) {
         this.facultyAdminRepository = facultyAdminRepository;
         this.engineerRepository = engineerRepository;
+        this.employeeRepository = employeeRepository;
         this.passwordEncoder = passwordEncoder;
         this.directory = directory;
     }
@@ -75,16 +85,19 @@ public class FacultyAdminController {
      *
      * Bootstrapping: while no faculty admin exists, nobody can sign in, so this one call is allowed
      * without a token. The moment the first admin exists the door closes, and every further admin
-     * is created by an existing one. That is what makes a freshly deployed service safe to leave
-     * reachable: the first person to call this owns it, and nobody after them can.
+     * is created by the default admin, {@value CompanyAccounts#DEFAULT_ADMIN_EMAIL}. That is what
+     * makes a freshly deployed service safe to leave reachable: the first person to call this owns
+     * it, and nobody after them can. In practice {@code DefaultAdminSeeder} has already created the
+     * default admin by the time any request arrives.
      *
      * Any facultyAdminId on the request is ignored; an admin is not managed by another admin.
      *
      * @param request the credentials and employee id for the new admin
      * @param caller the signed-in employee, absent only on the bootstrap call
      * @param httpRequest the current request, used to build the Location header
-     * @return 201 with the created admin, 400 for a malformed body, 401 without a token once an
-     *     admin exists, 403 for an engineer, or 409 if the employee id is taken
+     * @return 201 with the created admin, 400 for a malformed body or an email outside
+     *     {@value CompanyAccounts#EMAIL_DOMAIN}, 401 without a token once an admin exists, 403 for
+     *     anyone but the default admin, or 409 if the employee id or email is taken
      */
     @PostMapping
     @AllowAnonymous
@@ -95,9 +108,10 @@ public class FacultyAdminController {
     ) {
         if (!facultyAdminRepository.findAll().isEmpty()) {
             caller.orElseThrow(() -> new UnauthorizedException("Sign in to continue"))
-                .requireFacultyAdmin("create a faculty admin");
+                .requireDefaultAdmin("create a faculty admin");
         }
         validate(request);
+        CompanyAccounts.requireCompanyEmail(request.email());
         if (directory.existsById(request.employeeId())) {
             throw new IllegalStateException("Employee " + request.employeeId() + " already exists");
         }
@@ -114,6 +128,52 @@ public class FacultyAdminController {
         // Function URL, not the CloudFront address the caller actually used.
         URI location = URI.create(httpRequest.getRequestURI() + "/" + created.getEmployeeId());
         return ResponseEntity.created(location).body(FacultyAdminResponse.from(created));
+    }
+
+    /**
+     * Makes an existing plain employee or engineer a faculty admin.
+     *
+     * Only the default admin may do this. The check comes before the lookup, so anyone else learns
+     * nothing from the difference between 403 and 404.
+     *
+     * The account keeps everything else: id, email, password and the reports it filed or works on.
+     * It is the same account with a new role, so its open sessions stay valid (a token is tied to
+     * the password, which is unchanged) and the role applies from its next request, since the caller
+     * is looked up on every request. An engineer leaves the team they were on, because a faculty
+     * admin is managed by nobody.
+     *
+     * @param employeeId the id of the employee or engineer to promote
+     * @param caller the signed-in default admin
+     * @return 200 with the new admin; 403 for anyone but the default admin; 404 when nobody has that
+     *     id; 409 when they are a faculty admin already
+     */
+    @PutMapping("/{employeeId}")
+    public FacultyAdminResponse promote(@PathVariable String employeeId, Caller caller) {
+        caller.requireDefaultAdmin("promote to faculty admin");
+        Employee employee = directory.findById(employeeId)
+            .orElseThrow(() -> new NoSuchElementException("No employee " + employeeId));
+        if (employee instanceof FacultyAdmin) {
+            throw new IllegalStateException(employeeId + " is already a faculty admin");
+        }
+        if (employee instanceof Engineer engineer) {
+            // Through the domain, so the old admin's managed set and the engineer's link go together.
+            engineer.unassign();
+        }
+
+        // Save first, then delete; never the other way round. In PostgreSQL the save is an upsert on
+        // the same row, turning it into a FACULTY_ADMIN in place, and the delete then matches nothing
+        // because it only deletes rows of the old role. The in-memory stores keep each role apart, so
+        // there the delete removes the old entry. Deleting first would really delete the row, and the
+        // foreign keys would null out their reports' author and cascade away their assignments.
+        // The stored digest is carried over as it is, not hashed again, so the password still works.
+        FacultyAdmin promoted = facultyAdminRepository.save(
+            new FacultyAdmin(employee.getEmail(), employee.getPassword(), employeeId));
+        if (employee instanceof Engineer) {
+            engineerRepository.deleteById(employeeId);
+        } else {
+            employeeRepository.deleteById(employeeId);
+        }
+        return FacultyAdminResponse.from(promoted);
     }
 
     /**

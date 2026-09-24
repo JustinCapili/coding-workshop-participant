@@ -5,7 +5,7 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'coverage', 'e2e/artifacts']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
@@ -24,6 +24,22 @@ export default defineConfig([
     },
     rules: {
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+    },
+  },
+  {
+    // Tests, their helpers and the end-to-end suite run under Jest in Node, not in the app bundle.
+    files: ['**/*.test.{js,jsx}', 'src/test/**', 'e2e/**'],
+    languageOptions: {
+      globals: { ...globals.browser, ...globals.jest, ...globals.node },
+    },
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
+  {
+    files: ['*.config.js', 'e2e/support/*.cjs'],
+    languageOptions: {
+      globals: globals.node,
     },
   },
 ])

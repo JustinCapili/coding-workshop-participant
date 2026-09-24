@@ -35,8 +35,9 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
  * ran first decides what the others see.
  *
  * Every test starts with one faculty admin, FA1, created through the anonymous bootstrap call and
- * signed in. Everything else is created through the API as FA1, so the authorization rules are
- * exercised on every request rather than bypassed.
+ * signed in. FA1 is the default admin, admin@acme.inc, so it may also make further faculty admins;
+ * everyone else is {@code <id>@acme.inc}. Everything else is created through the API as FA1, so the
+ * authorization rules are exercised on every request rather than bypassed.
  *
  * ServerlessAutoConfiguration is excluded because it unconditionally contributes a
  * ServletWebServerFactory. That is exactly right inside Lambda, where it is how the application runs
@@ -97,7 +98,7 @@ class DirectoryControllerTest {
         mockMvc.perform(as(fa1, post("/faculty-admins")).content(adminBody("FA2")))
             .andExpect(status().isCreated())
             .andExpect(jsonPath("$.employeeId").value("FA2"))
-            .andExpect(jsonPath("$.email").value("FA2@example.com"))
+            .andExpect(jsonPath("$.email").value("FA2@acme.inc"))
             .andExpect(jsonPath("$.managedEngineers").isEmpty())
             .andExpect(jsonPath("$.password").doesNotExist());
 
@@ -339,7 +340,7 @@ class DirectoryControllerTest {
             mockMvc.perform(as(e1, post("/faculty-admins")).content(adminBody("FA2")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.status").value(403))
-                .andExpect(jsonPath("$.message").value("Only a faculty admin can create a faculty admin"));
+                .andExpect(jsonPath("$.message").value("Only admin@acme.inc can create a faculty admin"));
             mockMvc.perform(as(e1, post("/engineers")).content(engineerBody("E3", "FA1")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.message").value("Only a faculty admin can create engineers"));
@@ -412,6 +413,132 @@ class DirectoryControllerTest {
 
             assertThat(engineerRepository.findAll()).isEmpty();
         }
+
+        @Test
+        @DisplayName("only admin@acme.inc can create a faculty admin, not any faculty admin")
+        void onlyTheDefaultAdminCreatesAdmins() throws Exception {
+            createAdmin("FA2", fa1);
+            String fa2 = login("FA2");
+
+            mockMvc.perform(as(fa2, post("/faculty-admins")).content(adminBody("FA3")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.message").value("Only admin@acme.inc can create a faculty admin"));
+
+            assertThat(facultyAdminRepository.findAll()).hasSize(2);
+        }
+
+        @Test
+        @DisplayName("admins can only create accounts with an @acme.inc address")
+        void newAccountsNeedACompanyEmail() throws Exception {
+            for (String email : new String[] {
+                "x@acme.com", "x@example.com", "x@acme.inc.example.com", "x@sub.acme.inc"}) {
+                mockMvc.perform(as(fa1, post("/faculty-admins")).content(String.format(
+                        "{\"email\":\"%s\",\"password\":\"pw\",\"employeeId\":\"FA9\"}", email)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("email must be an @acme.inc address"));
+                mockMvc.perform(as(fa1, post("/engineers")).content(String.format(
+                        "{\"email\":\"%s\",\"password\":\"pw\",\"employeeId\":\"E9\"}", email)))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("email must be an @acme.inc address"));
+            }
+
+            // Case is not part of the rule.
+            mockMvc.perform(as(fa1, post("/engineers")).content(
+                    "{\"email\":\"E9@ACME.INC\",\"password\":\"pw\",\"employeeId\":\"E9\"}"))
+                .andExpect(status().isCreated());
+            assertThat(facultyAdminRepository.findAll()).hasSize(1);
+        }
+    }
+
+    @Nested
+    @DisplayName("promoting to faculty admin")
+    class Promotion {
+
+        @Test
+        @DisplayName("admin@acme.inc promotes an engineer, who leaves their team and keeps their login")
+        void promotesAnEngineer() throws Exception {
+            createEngineer("E1", "FA1", fa1);
+            String e1 = login("E1");
+
+            mockMvc.perform(as(fa1, put("/faculty-admins/E1")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.employeeId").value("E1"))
+                .andExpect(jsonPath("$.email").value("E1@acme.inc"))
+                .andExpect(jsonPath("$.managedEngineers").isEmpty())
+                .andExpect(jsonPath("$.password").doesNotExist());
+
+            mockMvc.perform(as(fa1, get("/faculty-admins/FA1/engineers")))
+                .andExpect(jsonPath("$.length()").value(0));
+            mockMvc.perform(as(fa1, get("/engineers/E1"))).andExpect(status().isNotFound());
+            assertThat(engineerRepository.findAll()).isEmpty();
+            assertThat(facultyAdminRepository.findById("E1")).isPresent();
+
+            // The token they already had still works, and now says who they are.
+            mockMvc.perform(as(e1, get("/auth/me")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("FACULTY_ADMIN"));
+            // So does their password, which was carried over rather than reset.
+            String fresh = login("E1");
+            mockMvc.perform(as(fresh, get("/faculty-admins/E1/engineers"))).andExpect(status().isOk());
+        }
+
+        @Test
+        @DisplayName("admin@acme.inc promotes a self-registered employee")
+        void promotesARegisteredEmployee() throws Exception {
+            String body = register("pat");
+            String employeeId = JsonPath.read(body, "$.user.employeeId");
+            String pat = JsonPath.read(body, "$.token");
+
+            mockMvc.perform(as(fa1, put("/faculty-admins/" + employeeId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.email").value("pat@acme.inc"));
+
+            assertThat(employeeRepository.findAll()).isEmpty();
+            mockMvc.perform(as(fa1, get("/employees/" + employeeId))).andExpect(status().isNotFound());
+            mockMvc.perform(as(pat, get("/auth/me")))
+                .andExpect(jsonPath("$.role").value("FACULTY_ADMIN"));
+        }
+
+        @Test
+        @DisplayName("nobody but admin@acme.inc may promote, and a refusal comes before any lookup")
+        void onlyTheDefaultAdminPromotes() throws Exception {
+            createAdmin("FA2", fa1);
+            String fa2 = login("FA2");
+            createEngineer("E1", "FA1", fa1);
+            createEngineer("E2", "FA1", fa1);
+            String e2 = login("E2");
+            String employee = JsonPath.read(register("pat"), "$.token");
+
+            for (String token : new String[] {fa2, e2, employee}) {
+                mockMvc.perform(as(token, put("/faculty-admins/E1")))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.message")
+                        .value("Only admin@acme.inc can promote to faculty admin"));
+                // 403 rather than 404, so an unknown id reveals nothing.
+                mockMvc.perform(as(token, put("/faculty-admins/nope")))
+                    .andExpect(status().isForbidden());
+            }
+            mockMvc.perform(put("/faculty-admins/E1")).andExpect(status().isUnauthorized());
+
+            mockMvc.perform(as(fa1, get("/engineers/E1")))
+                .andExpect(jsonPath("$.facultyAdminId").value("FA1"));
+            assertThat(facultyAdminRepository.findAll()).hasSize(2);
+        }
+
+        @Test
+        @DisplayName("an unknown id is a 404 and an existing faculty admin is a 409")
+        void promotingNobodyOrAnAdminIsRefused() throws Exception {
+            createAdmin("FA2", fa1);
+
+            mockMvc.perform(as(fa1, put("/faculty-admins/nope")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("No employee nope"));
+            mockMvc.perform(as(fa1, put("/faculty-admins/FA2")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("FA2 is already a faculty admin"));
+            mockMvc.perform(as(fa1, put("/faculty-admins/FA1")))
+                .andExpect(status().isConflict());
+        }
     }
 
     /**
@@ -430,10 +557,26 @@ class DirectoryControllerTest {
         String body = mockMvc.perform(post("/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(String.format(
-                    "{\"email\":\"%s@example.com\",\"password\":\"pw\"}", employeeId)))
+                    "{\"email\":\"%s\",\"password\":\"pw\"}", emailOf(employeeId))))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString();
         return JsonPath.read(body, "$.token");
+    }
+
+    /**
+     * Registers a plain employee as {@code <name>@acme.inc}.
+     *
+     * @param name the part of the email before the @
+     * @return the registration response, which carries the generated id and a token
+     * @throws Exception if the request fails
+     */
+    private String register(String name) throws Exception {
+        return mockMvc.perform(post("/auth/register")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(String.format(
+                    "{\"email\":\"%s@acme.inc\",\"password\":\"password\"}", name)))
+            .andExpect(status().isCreated())
+            .andReturn().getResponse().getContentAsString();
     }
 
     /**
@@ -475,8 +618,8 @@ class DirectoryControllerTest {
      */
     private static String adminBody(String employeeId) {
         return String.format(
-            "{\"email\":\"%s@example.com\",\"password\":\"pw\",\"employeeId\":\"%s\"}",
-            employeeId, employeeId);
+            "{\"email\":\"%s\",\"password\":\"pw\",\"employeeId\":\"%s\"}",
+            emailOf(employeeId), employeeId);
     }
 
     /**
@@ -491,7 +634,18 @@ class DirectoryControllerTest {
             ? ""
             : String.format(",\"facultyAdminId\":\"%s\"", facultyAdminId);
         return String.format(
-            "{\"email\":\"%s@example.com\",\"password\":\"pw\",\"employeeId\":\"%s\"%s}",
-            employeeId, employeeId, admin);
+            "{\"email\":\"%s\",\"password\":\"pw\",\"employeeId\":\"%s\"%s}",
+            emailOf(employeeId), employeeId, admin);
+    }
+
+    /**
+     * The email every test account has: FA1, the bootstrap admin, is the default admin; everyone
+     * else is {@code <id>@acme.inc}.
+     *
+     * @param employeeId the account's id
+     * @return its email
+     */
+    private static String emailOf(String employeeId) {
+        return "FA1".equals(employeeId) ? "admin@acme.inc" : employeeId + "@acme.inc";
     }
 }

@@ -1,6 +1,7 @@
 package com.example.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
@@ -118,7 +119,7 @@ class ReportControllerTest {
         void loginReturnsTokenAndUser() throws Exception {
             mockMvc.perform(post("/auth/login")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"email\":\"E1@example.com\",\"password\":\"pw\"}"))
+                    .content("{\"email\":\"E1@acme.inc\",\"password\":\"pw\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.token").isNotEmpty())
                 .andExpect(jsonPath("$.user.employeeId").value("E1"))
@@ -132,7 +133,7 @@ class ReportControllerTest {
         void loginIgnoresEmailCase() throws Exception {
             mockMvc.perform(post("/auth/login")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"email\":\"fa1@EXAMPLE.com\",\"password\":\"pw\"}"))
+                    .content("{\"email\":\"Admin@ACME.inc\",\"password\":\"pw\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.user.role").value("FACULTY_ADMIN"))
                 .andExpect(jsonPath("$.user.facultyAdminId").doesNotExist());
@@ -143,13 +144,13 @@ class ReportControllerTest {
         void badCredentialsAreIndistinguishable() throws Exception {
             String wrongPassword = mockMvc.perform(post("/auth/login")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"email\":\"E1@example.com\",\"password\":\"nope\"}"))
+                    .content("{\"email\":\"E1@acme.inc\",\"password\":\"nope\"}"))
                 .andExpect(status().isUnauthorized())
                 .andReturn().getResponse().getContentAsString();
 
             String unknownEmail = mockMvc.perform(post("/auth/login")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"email\":\"nobody@example.com\",\"password\":\"pw\"}"))
+                    .content("{\"email\":\"nobody@acme.inc\",\"password\":\"pw\"}"))
                 .andExpect(status().isUnauthorized())
                 .andReturn().getResponse().getContentAsString();
 
@@ -161,7 +162,7 @@ class ReportControllerTest {
         void blankFieldIsBadRequest() throws Exception {
             mockMvc.perform(post("/auth/login")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"email\":\"E1@example.com\",\"password\":\"\"}"))
+                    .content("{\"email\":\"E1@acme.inc\",\"password\":\"\"}"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("password must not be blank"));
         }
@@ -205,7 +206,7 @@ class ReportControllerTest {
         void tokenIsAJwtWithAnExpiry() throws Exception {
             String body = mockMvc.perform(post("/auth/login")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"email\":\"E1@example.com\",\"password\":\"pw\"}"))
+                    .content("{\"email\":\"E1@acme.inc\",\"password\":\"pw\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.expiresAt").isNotEmpty())
                 .andReturn().getResponse().getContentAsString();
@@ -312,11 +313,11 @@ class ReportControllerTest {
 
             mockMvc.perform(post("/auth/login")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"email\":\"E1@example.com\",\"password\":\"pw\"}"))
+                    .content("{\"email\":\"E1@acme.inc\",\"password\":\"pw\"}"))
                 .andExpect(status().isUnauthorized());
             mockMvc.perform(post("/auth/login")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"email\":\"E1@example.com\",\"password\":\"brand-new-pw\"}"))
+                    .content("{\"email\":\"E1@acme.inc\",\"password\":\"brand-new-pw\"}"))
                 .andExpect(status().isOk());
         }
 
@@ -422,7 +423,7 @@ class ReportControllerTest {
                 .andExpect(jsonPath("$.reportId").value(startsWith("RPT-")))
                 .andExpect(jsonPath("$.status").value("UNASSIGNED"))
                 .andExpect(jsonPath("$.authorId").value("E1"))
-                .andExpect(jsonPath("$.author.email").value("E1@example.com"))
+                .andExpect(jsonPath("$.author.email").value("E1@acme.inc"))
                 .andExpect(jsonPath("$.assignees").isEmpty())
                 .andExpect(jsonPath("$.pendingAssignmentRequests").isEmpty())
                 .andExpect(jsonPath("$.pendingCloseRequest").doesNotExist())
@@ -531,7 +532,7 @@ class ReportControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.status").value("PENDING"))
                 .andExpect(jsonPath("$.engineerId").value("E1"))
-                .andExpect(jsonPath("$.engineer.email").value("E1@example.com"));
+                .andExpect(jsonPath("$.engineer.email").value("E1@acme.inc"));
 
             // Nothing has been assigned yet; the report just carries the pending request.
             mockMvc.perform(as(e1, get("/reports/" + reportId)))
@@ -846,7 +847,7 @@ class ReportControllerTest {
 
             mockMvc.perform(as(e1, get("/reports/" + reportId)))
                 .andExpect(jsonPath("$.activity.length()").value(1))
-                .andExpect(jsonPath("$.activity[0].author.email").value("FA1@example.com"));
+                .andExpect(jsonPath("$.activity[0].author.email").value("admin@acme.inc"));
         }
 
         @Test
@@ -946,12 +947,12 @@ class ReportControllerTest {
         void registerSignsIn() throws Exception {
             String body = mockMvc.perform(post("/api/springboot-service/auth/register")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"email\":\" S1@example.com \",\"password\":\"password\"}"))
+                    .content("{\"email\":\" S1@acme.inc \",\"password\":\"password\"}"))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.token").isNotEmpty())
                 .andExpect(jsonPath("$.expiresAt").isNotEmpty())
                 .andExpect(jsonPath("$.user.employeeId").value(startsWith("EMP-")))
-                .andExpect(jsonPath("$.user.email").value("S1@example.com"))
+                .andExpect(jsonPath("$.user.email").value("S1@acme.inc"))
                 .andExpect(jsonPath("$.user.role").value("EMPLOYEE"))
                 .andExpect(jsonPath("$.user.facultyAdminId").doesNotExist())
                 .andExpect(jsonPath("$.user.password").doesNotExist())
@@ -963,28 +964,28 @@ class ReportControllerTest {
                 .andExpect(jsonPath("$.role").value("EMPLOYEE"));
             mockMvc.perform(post("/auth/login")
                     .contentType(MediaType.APPLICATION_JSON)
-                    .content("{\"email\":\"s1@example.com\",\"password\":\"password\"}"))
+                    .content("{\"email\":\"s1@acme.inc\",\"password\":\"password\"}"))
                 .andExpect(status().isOk());
             mockMvc.perform(as(e1, get("/employees")))
                 .andExpect(jsonPath("$.length()").value(1))
-                .andExpect(jsonPath("$[0].email").value("S1@example.com"));
+                .andExpect(jsonPath("$[0].email").value("S1@acme.inc"));
         }
 
         @Test
         @DisplayName("an email held by any kind of account, in any case, cannot register again")
         void registerNeedsAnUnusedEmail() throws Exception {
-            mockMvc.perform(register("e1@EXAMPLE.com", "password"))
+            mockMvc.perform(register("e1@ACME.INC", "password"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value(startsWith("An account with email")));
-            mockMvc.perform(register("FA1@example.com", "password"))
+            mockMvc.perform(register("admin@acme.inc", "password"))
                 .andExpect(status().isConflict());
             registerEmployee("S1");
-            mockMvc.perform(register("s1@example.com", "password"))
+            mockMvc.perform(register("s1@acme.inc", "password"))
                 .andExpect(status().isConflict());
 
             // And the other way round: an admin cannot give an engineer a registered employee's email.
             mockMvc.perform(as(fa1, post("/engineers"))
-                    .content("{\"email\":\"S1@example.com\",\"password\":\"pw\",\"employeeId\":\"X\"}"))
+                    .content("{\"email\":\"S1@acme.inc\",\"password\":\"pw\",\"employeeId\":\"X\"}"))
                 .andExpect(status().isConflict());
         }
 
@@ -994,9 +995,25 @@ class ReportControllerTest {
             mockMvc.perform(register("not-an-email", "password"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("email must be a valid email address"));
-            mockMvc.perform(register("new@example.com", "short"))
+            mockMvc.perform(register("new@acme.inc", "short"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("password must be at least 8 characters"));
+        }
+
+        @Test
+        @DisplayName("registration only accepts an @acme.inc address, matched exactly")
+        void registerRejectsOtherDomains() throws Exception {
+            for (String email : new String[] {
+                "pat@acme.com", "pat@example.com", "pat@acme.inc.example.com", "pat@sub.acme.inc"}) {
+                mockMvc.perform(register(email, "password"))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.message").value("email must be an @acme.inc address"));
+            }
+            assertThat(employeeRepository.findAll()).isEmpty();
+
+            mockMvc.perform(register(" Pat@Acme.Inc ", "password"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.user.email").value("Pat@Acme.Inc"));
         }
 
         @Test
@@ -1076,6 +1093,110 @@ class ReportControllerTest {
         }
     }
 
+    @Nested
+    @DisplayName("promoting a plain employee to engineer")
+    class Promoting {
+
+        /** A registered plain employee: their id and the token from signing up. */
+        private String employeeId;
+        private String employeeToken;
+
+        @BeforeEach
+        void registerAnEmployee() throws Exception {
+            String body = mockMvc.perform(register("S1@acme.inc", "s1-password"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+            employeeId = JsonPath.read(body, "$.user.employeeId");
+            employeeToken = JsonPath.read(body, "$.token");
+        }
+
+        @Test
+        @DisplayName("puts them on the admin's team, keeping their password and their session")
+        void promotesInPlace() throws Exception {
+            mockMvc.perform(as(fa1, post("/employees/" + employeeId + "/promote")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.employeeId").value(employeeId))
+                .andExpect(jsonPath("$.email").value("S1@acme.inc"))
+                .andExpect(jsonPath("$.facultyAdminId").value("FA1"))
+                .andExpect(jsonPath("$.password").doesNotExist());
+
+            // The same token still works, and the role applies from the next request.
+            mockMvc.perform(as(employeeToken, get("/auth/me")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.role").value("ENGINEER"))
+                .andExpect(jsonPath("$.facultyAdminId").value("FA1"));
+            mockMvc.perform(post("/auth/login")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"email\":\"S1@acme.inc\",\"password\":\"s1-password\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.user.role").value("ENGINEER"));
+
+            mockMvc.perform(as(fa1, get("/faculty-admins/FA1/engineers")))
+                .andExpect(jsonPath("$[*].employeeId", hasItem(employeeId)));
+            mockMvc.perform(as(fa1, get("/employees")))
+                .andExpect(jsonPath("$.length()").value(0));
+        }
+
+        @Test
+        @DisplayName("keeps the reports they filed, which now belong to the admin's team")
+        void reportsFollowThem() throws Exception {
+            String body = mockMvc.perform(as(employeeToken, post("/reports"))
+                    .content("{\"title\":\"Broken door\",\"location\":\"Lobby\"}"))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getContentAsString();
+            String reportId = JsonPath.read(body, "$.reportId");
+            // Filed by somebody on no team, so every admin sees it.
+            mockMvc.perform(as(fa2, get("/reports/" + reportId))).andExpect(status().isOk());
+
+            mockMvc.perform(as(fa1, post("/employees/" + employeeId + "/promote")))
+                .andExpect(status().isOk());
+
+            mockMvc.perform(as(employeeToken, get("/reports/" + reportId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authorId").value(employeeId))
+                .andExpect(jsonPath("$.author.role").value("ENGINEER"));
+            mockMvc.perform(as(e2, get("/reports/" + reportId))).andExpect(status().isOk());
+            mockMvc.perform(as(fa2, get("/reports/" + reportId))).andExpect(status().isForbidden());
+        }
+
+        @Test
+        @DisplayName("works on the cloud path prefix too")
+        void cloudPrefix() throws Exception {
+            mockMvc.perform(as(fa2, post("/api/springboot-service/employees/" + employeeId + "/promote")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.facultyAdminId").value("FA2"));
+        }
+
+        @Test
+        @DisplayName("only a faculty admin may promote")
+        void onlyAdminsPromote() throws Exception {
+            for (String token : new String[] {e1, employeeToken}) {
+                mockMvc.perform(as(token, post("/employees/" + employeeId + "/promote")))
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.message").value(startsWith("Only a faculty admin")));
+            }
+            mockMvc.perform(as(employeeToken, get("/auth/me")))
+                .andExpect(jsonPath("$.role").value("EMPLOYEE"));
+        }
+
+        @Test
+        @DisplayName("an unknown id is 404, and an engineer's or admin's id is 409")
+        void onlyPlainEmployees() throws Exception {
+            mockMvc.perform(as(fa1, post("/employees/EMP-NOBODY/promote")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.message").value("No employee EMP-NOBODY"));
+            mockMvc.perform(as(fa1, post("/employees/E3/promote")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("E3 is already an engineer"));
+            mockMvc.perform(as(fa1, post("/employees/FA2/promote")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("FA2 is a faculty admin"));
+            // Nothing was demoted or moved along the way.
+            mockMvc.perform(as(fa2, get("/faculty-admins/FA2/engineers")))
+                .andExpect(jsonPath("$[*].employeeId", hasItem("E3")));
+        }
+    }
+
     // ---------------------------------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------------------------------
@@ -1115,10 +1236,18 @@ class ReportControllerTest {
         String body = mockMvc.perform(post("/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(String.format(
-                    "{\"email\":\"%s@example.com\",\"password\":\"pw\"}", employeeId)))
+                    "{\"email\":\"%s\",\"password\":\"pw\"}", emailOf(employeeId))))
             .andExpect(status().isOk())
             .andReturn().getResponse().getContentAsString();
         return JsonPath.read(body, "$.token");
+    }
+
+    /**
+     * The email a seeded account has: FA1, the bootstrap admin, is the default admin, which is what
+     * lets it create FA2; everyone else is {@code <id>@acme.inc}.
+     */
+    private static String emailOf(String employeeId) {
+        return "FA1".equals(employeeId) ? "admin@acme.inc" : employeeId + "@acme.inc";
     }
 
     /**
@@ -1128,8 +1257,8 @@ class ReportControllerTest {
         MockHttpServletRequestBuilder request = post("/faculty-admins")
             .contentType(MediaType.APPLICATION_JSON)
             .content(String.format(
-                "{\"email\":\"%s@example.com\",\"password\":\"pw\",\"employeeId\":\"%s\"}",
-                employeeId, employeeId));
+                "{\"email\":\"%s\",\"password\":\"pw\",\"employeeId\":\"%s\"}",
+                emailOf(employeeId), employeeId));
         if (token != null) {
             request.header(HttpHeaders.AUTHORIZATION, "Bearer " + token);
         }
@@ -1144,11 +1273,11 @@ class ReportControllerTest {
     }
 
     /**
-     * Registers a plain employee as {@code <name>@example.com} and returns their token. The id is
+     * Registers a plain employee as {@code <name>@acme.inc} and returns their token. The id is
      * generated, so the name only picks the email.
      */
     private String registerEmployee(String name) throws Exception {
-        String body = mockMvc.perform(register(name + "@example.com", "password"))
+        String body = mockMvc.perform(register(name + "@acme.inc", "password"))
             .andExpect(status().isCreated())
             .andReturn().getResponse().getContentAsString();
         return JsonPath.read(body, "$.token");
@@ -1159,7 +1288,7 @@ class ReportControllerTest {
         throws Exception {
         mockMvc.perform(as(token, post("/engineers"))
                 .content(String.format(
-                    "{\"email\":\"%s@example.com\",\"password\":\"pw\",\"employeeId\":\"%s\","
+                    "{\"email\":\"%s@acme.inc\",\"password\":\"pw\",\"employeeId\":\"%s\","
                         + "\"facultyAdminId\":\"%s\"}",
                     employeeId, employeeId, facultyAdminId)))
             .andExpect(status().isCreated());

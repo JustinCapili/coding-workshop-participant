@@ -1,0 +1,15 @@
+{
+  "name": "loadtest",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Artillery load tests for springboot-service. Kept apart from frontend/ so Artillery's dependency tree stays out of the frontend's CI audit.",
+  "type": "module",
+  "scripts": {
+    "seed": "node seed.js",
+    "test": "node run.js",
+    "smoke": "node run.js --smoke"
+  },
+  "devDependencies": {
+    "artillery": "^2.0.34"
+  }
+}

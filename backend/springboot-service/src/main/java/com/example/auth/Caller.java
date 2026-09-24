@@ -57,6 +57,17 @@ public record Caller(
     }
 
     /**
+     * Reports whether the caller is the default admin: a faculty admin signed in as
+     * {@value CompanyAccounts#DEFAULT_ADMIN_EMAIL}. Both must hold, so an employee or engineer who
+     * somehow had that address would still not qualify.
+     *
+     * @return true for the default admin
+     */
+    public boolean isDefaultAdmin() {
+        return isFacultyAdmin() && CompanyAccounts.isDefaultAdminEmail(email);
+    }
+
+    /**
      * Reports whether the caller is the employee with the given id.
      *
      * @param otherEmployeeId an employee id
@@ -85,6 +96,19 @@ public record Caller(
     public void requireFacultyAdmin(String action) {
         if (!isFacultyAdmin()) {
             throw new ForbiddenException("Only a faculty admin can " + action);
+        }
+    }
+
+    /**
+     * Refuses anyone but the default admin, including every other faculty admin.
+     *
+     * @param action what they were trying to do, for the message
+     * @throws ForbiddenException if the caller is not the default admin
+     */
+    public void requireDefaultAdmin(String action) {
+        if (!isDefaultAdmin()) {
+            throw new ForbiddenException(
+                "Only " + CompanyAccounts.DEFAULT_ADMIN_EMAIL + " can " + action);
         }
     }
 
