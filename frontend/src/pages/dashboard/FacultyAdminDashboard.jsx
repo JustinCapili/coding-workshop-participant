@@ -22,6 +22,7 @@ import { Scope } from '../../domain/roles'
 import { useAsync } from '../../hooks/useAsync'
 import { errorMessage } from '../../services/apiError'
 import * as reportsService from '../../services/reportsService'
+import { DASHBOARD_PAGE_SIZE } from './pageSize'
 
 /**
  * Faculty Admin / Manager dashboard. `scope` is TEAM for a regular faculty admin and ALL for the
@@ -121,7 +122,14 @@ export default function FacultyAdminDashboard({ user, scope = Scope.TEAM }) {
         </Grid>
       </Grid>
 
-      <IncidentBoard key={boardKey} viewer={user} renderActions={renderActions} showAuthor title={isGlobal ? 'Current incidents (all teams)' : 'Current incidents'} />
+      <IncidentBoard
+        key={boardKey}
+        viewer={user}
+        renderActions={renderActions}
+        showAuthor
+        title={isGlobal ? 'Current incidents (all teams)' : 'Current incidents'}
+        pageSize={DASHBOARD_PAGE_SIZE}
+      />
 
       <AssignEngineerDialog
         open={Boolean(assigning)}

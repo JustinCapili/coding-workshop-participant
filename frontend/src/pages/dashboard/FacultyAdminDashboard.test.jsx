@@ -1,6 +1,7 @@
 import { screen, within } from '@testing-library/react'
 import { ApiError } from '../../services/apiError'
 import * as reportsService from '../../services/reportsService'
+import { fileExtraReports } from '../../test/mockReports'
 import { renderApp } from '../../test/renderApp'
 
 const LEAK = 'Water leak under sink in 3rd floor kitchenette'
@@ -131,5 +132,21 @@ describe('FacultyAdminDashboard', () => {
 
     expect(await screen.findByText('1 / 2')).toBeInTheDocument()
     expect(screen.queryByText('Stats unavailable')).not.toBeInTheDocument()
+  })
+
+  it('shows six incidents at a time, oldest first, with "Load more" for the rest', async () => {
+    fileExtraReports(9)
+    const { user } = renderApp({ route: '/dashboard', as: 'frank@acme.com' })
+
+    const heading = await screen.findByRole('heading', { name: /^Current incidents \d+ reports$/ })
+    const total = Number(heading.textContent.match(/(\d+) reports/)[1])
+    expect(total).toBeGreaterThan(6)
+    const board = within(heading.closest('section'))
+    expect(board.getAllByRole('heading', { level: 3 })[0]).toHaveTextContent('Broken chair in Room 110')
+    expect(board.getAllByRole('heading', { level: 3 })).toHaveLength(6)
+    expect(board.getByText(`Showing 6 of ${total}`)).toBeInTheDocument()
+
+    await user.click(board.getByRole('button', { name: 'Load more' }))
+    expect(board.getAllByRole('heading', { level: 3 })).toHaveLength(Math.min(12, total))
   })
 })

@@ -1,6 +1,7 @@
 import { screen } from '@testing-library/react'
 import { ApiError } from '../../services/apiError'
 import * as reportsService from '../../services/reportsService'
+import { fileExtraReports } from '../../test/mockReports'
 import { renderApp } from '../../test/renderApp'
 
 function myReportTitles() {
@@ -18,16 +19,16 @@ describe('EmployeeDashboard', () => {
     expect(screen.getByRole('button', { name: /Previous report statuses/ })).toBeInTheDocument()
   })
 
-  it('lists only the reports the employee filed, newest first, archived included', async () => {
+  it('lists only the reports the employee filed, oldest filed first, archived included', async () => {
     renderApp({ route: '/dashboard', as: 'alice@acme.com' })
 
     expect(await screen.findByRole('heading', { name: 'Broken chair in Room 110' })).toBeInTheDocument()
     expect(myReportTitles()).toEqual([
-      'Water leak under sink in 3rd floor kitchenette',
-      'Projector in Room 204 not powering on',
-      'Wi-Fi drops every few minutes in lecture hall',
-      'Broken chair in Room 110',
       'Printer jams on every duplex job',
+      'Broken chair in Room 110',
+      'Wi-Fi drops every few minutes in lecture hall',
+      'Projector in Room 204 not powering on',
+      'Water leak under sink in 3rd floor kitchenette',
     ])
     expect(screen.queryByText('Emergency exit sign flickering')).not.toBeInTheDocument()
   })
@@ -79,5 +80,31 @@ describe('EmployeeDashboard', () => {
 
     expect(await screen.findByRole('heading', { name: 'Broken chair in Room 110' })).toBeInTheDocument()
     expect(screen.queryByText('Boom')).not.toBeInTheDocument()
+  })
+
+  it('shows six reports at a time, oldest first, loading six more at a time', async () => {
+    // Alice's five fixtures (oldest) plus nine newer ones: 14 in all.
+    const extra = fileExtraReports(9)
+    const { user } = renderApp({ route: '/dashboard', as: 'alice@acme.com' })
+
+    expect(await screen.findByText('Showing 6 of 14')).toBeInTheDocument()
+    expect(myReportTitles()).toEqual([
+      'Printer jams on every duplex job',
+      'Broken chair in Room 110',
+      'Wi-Fi drops every few minutes in lecture hall',
+      'Projector in Room 204 not powering on',
+      'Water leak under sink in 3rd floor kitchenette',
+      extra[0],
+    ])
+
+    await user.click(screen.getByRole('button', { name: 'Load more' }))
+    expect(myReportTitles()).toHaveLength(12)
+    expect(myReportTitles().slice(6)).toEqual(extra.slice(1, 7))
+    expect(screen.getByText('Showing 12 of 14')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Load more' }))
+    expect(myReportTitles()).toHaveLength(14)
+    expect(myReportTitles().at(-1)).toBe(extra[8])
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
   })
 })

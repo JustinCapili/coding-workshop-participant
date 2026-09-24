@@ -16,6 +16,7 @@ import { ACTIVE_ASSIGNMENT_STATUSES, ReportStatus } from '../../domain/reportSta
 import { useAsync } from '../../hooks/useAsync'
 import { errorMessage } from '../../services/apiError'
 import * as reportsService from '../../services/reportsService'
+import { DASHBOARD_PAGE_SIZE } from './pageSize'
 
 /**
  * Engineer dashboard: how many incidents are on the engineer's plate, everything an employee gets,
@@ -104,7 +105,7 @@ export default function EngineerDashboard({ user }) {
         </Grid>
       </Grid>
 
-      <IncidentBoard viewer={user} renderActions={renderActions} showAuthor />
+      <IncidentBoard viewer={user} renderActions={renderActions} showAuthor pageSize={DASHBOARD_PAGE_SIZE} />
     </>
   )
 }

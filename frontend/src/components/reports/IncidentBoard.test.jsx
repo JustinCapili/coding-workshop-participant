@@ -7,11 +7,12 @@ import IncidentBoard from './IncidentBoard'
 const bob = seededUser('bob@acme.com')
 
 // Bob's team (FA-001) has four open reports; RPT-1007 is archived and never shows here.
+// Oldest filed first: 9 days, 4 days, 2 days and 3 hours ago.
 const BOB_OPEN = [
-  'Water leak under sink in 3rd floor kitchenette',
-  'Projector in Room 204 not powering on',
-  'Wi-Fi drops every few minutes in lecture hall',
   'Broken chair in Room 110',
+  'Wi-Fi drops every few minutes in lecture hall',
+  'Projector in Room 204 not powering on',
+  'Water leak under sink in 3rd floor kitchenette',
 ]
 
 function cardTitles() {
@@ -21,7 +22,7 @@ function cardTitles() {
 afterEach(() => jest.restoreAllMocks())
 
 describe('IncidentBoard', () => {
-  it("lists the viewer's open reports, newest first, with a count", async () => {
+  it("lists the viewer's open reports, oldest filed first, with a count", async () => {
     renderWithProviders(<IncidentBoard viewer={bob} />)
 
     expect(await screen.findByRole('heading', { name: 'Current incidents 4 reports' })).toBeInTheDocument()

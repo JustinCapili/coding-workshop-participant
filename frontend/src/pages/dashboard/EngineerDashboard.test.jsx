@@ -1,6 +1,7 @@
 import { screen, within } from '@testing-library/react'
 import { ApiError } from '../../services/apiError'
 import * as reportsService from '../../services/reportsService'
+import { fileExtraReports } from '../../test/mockReports'
 import { renderApp } from '../../test/renderApp'
 
 const LEAK = 'Water leak under sink in 3rd floor kitchenette'
@@ -29,10 +30,10 @@ describe('EngineerDashboard', () => {
 
     expect(await screen.findByRole('heading', { name: 'Current incidents 4 reports' })).toBeInTheDocument()
     expect(cardTitles()).toEqual([
-      LEAK,
-      'Projector in Room 204 not powering on',
-      'Wi-Fi drops every few minutes in lecture hall',
       'Broken chair in Room 110',
+      'Wi-Fi drops every few minutes in lecture hall',
+      'Projector in Room 204 not powering on',
+      LEAK,
     ])
     expect((await card(LEAK)).getByText(/· Alice Nguyen ·/)).toBeInTheDocument()
   })
@@ -41,7 +42,7 @@ describe('EngineerDashboard', () => {
     renderApp({ route: '/dashboard', as: 'dave@acme.com' })
 
     expect(await screen.findByRole('heading', { name: 'Current incidents 2 reports' })).toBeInTheDocument()
-    expect(cardTitles()).toEqual(['Card reader not accepting staff badges', 'Emergency exit sign flickering'])
+    expect(cardTitles()).toEqual(['Emergency exit sign flickering', 'Card reader not accepting staff badges'])
   })
 
   it('offers "Request assignment" only on unassigned incidents', async () => {
@@ -112,6 +113,36 @@ describe('EngineerDashboard', () => {
     await user.click(screen.getByRole('button', { name: 'Retry' }))
 
     expect(await screen.findByRole('heading', { name: 'Current incidents 4 reports' })).toBeInTheDocument()
+  })
+})
+
+describe('EngineerDashboard: six incidents at a time', () => {
+  it('shows the oldest six, loads six more at a time, and starts over when a filter changes', async () => {
+    // Bob's four open incidents plus nine newer ones in the Annex: 13 in all.
+    const extra = fileExtraReports(9, { location: 'Annex' })
+    const { user } = renderApp({ route: '/dashboard', as: 'bob@acme.com' })
+
+    expect(await screen.findByRole('heading', { name: 'Current incidents 13 reports' })).toBeInTheDocument()
+    expect(cardTitles()).toEqual([
+      'Broken chair in Room 110',
+      'Wi-Fi drops every few minutes in lecture hall',
+      'Projector in Room 204 not powering on',
+      LEAK,
+      extra[0],
+      extra[1],
+    ])
+    expect(screen.getByText('Showing 6 of 13')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Load more' }))
+    expect(cardTitles()).toHaveLength(12)
+    await user.click(screen.getByRole('button', { name: 'Load more' }))
+    expect(cardTitles()).toHaveLength(13)
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
+
+    await user.type(screen.getByRole('textbox', { name: 'Location' }), 'annex')
+    expect(await screen.findByRole('heading', { name: 'Current incidents 9 reports' })).toBeInTheDocument()
+    expect(cardTitles()).toEqual(extra.slice(0, 6))
+    expect(screen.getByText('Showing 6 of 9')).toBeInTheDocument()
   })
 })
 

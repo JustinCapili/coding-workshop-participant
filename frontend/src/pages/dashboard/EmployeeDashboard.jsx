@@ -9,17 +9,22 @@ import ListAltIcon from '@mui/icons-material/ListAlt'
 import ActionCard from '../../components/dashboard/ActionCard'
 import PageHeader from '../../components/common/PageHeader'
 import ReportGrid from '../../components/reports/ReportGrid'
+import { oldestFirst } from '../../domain/reportOrder'
 import { useAsync } from '../../hooks/useAsync'
 import * as reportsService from '../../services/reportsService'
+import { DASHBOARD_PAGE_SIZE } from './pageSize'
 
 /**
  * Employee dashboard: two entry points (create a report / see my report statuses) and the
- * employee's own reports with their current ReportStatus.
+ * employee's own reports with their current ReportStatus, oldest filed first, a set at a time.
  */
 export default function EmployeeDashboard({ user }) {
   const myReportsRef = useRef(null)
   const { data, loading, error, reload } = useAsync(
-    () => reportsService.listReports({ viewer: user }).then((all) => all.filter((r) => r.authorId === user.employeeId)),
+    () =>
+      reportsService
+        .listReports({ viewer: user })
+        .then((all) => oldestFirst(all.filter((r) => r.authorId === user.employeeId))),
     [user],
   )
 
@@ -51,6 +56,7 @@ export default function EmployeeDashboard({ user }) {
           My reports
         </Typography>
         <ReportGrid
+          pageSize={DASHBOARD_PAGE_SIZE}
           reports={data}
           loading={loading}
           error={error}

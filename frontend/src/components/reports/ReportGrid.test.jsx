@@ -63,4 +63,45 @@ describe('ReportGrid', () => {
     expect(screen.getByRole('button', { name: 'Act on RPT-2' })).toBeInTheDocument()
     expect(renderActions).toHaveBeenCalledWith(reports[0])
   })
+
+  describe('a set at a time, with pageSize', () => {
+    const five = Array.from({ length: 5 }, (_, i) => ({
+      reportId: `RPT-${i + 1}`,
+      title: `Report ${i + 1}`,
+      location: 'Room 1',
+      status: 'UNASSIGNED',
+      updatedAt: new Date().toISOString(),
+    }))
+    const titles = () => screen.getAllByRole('heading').map((h) => h.textContent)
+
+    it('shows the first set, then one more set per "Load more", until all are shown', async () => {
+      const { user } = renderWithProviders(<ReportGrid reports={five} pageSize={2} />)
+
+      expect(titles()).toEqual(['Report 1', 'Report 2'])
+      expect(screen.getByText('Showing 2 of 5')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Load more' }))
+      expect(titles()).toEqual(['Report 1', 'Report 2', 'Report 3', 'Report 4'])
+      expect(screen.getByText('Showing 4 of 5')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Load more' }))
+      expect(titles()).toHaveLength(5)
+      expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
+      expect(screen.queryByText(/^Showing/)).not.toBeInTheDocument()
+    })
+
+    it('has no "Load more" when everything fits in the first set', () => {
+      renderWithProviders(<ReportGrid reports={five} pageSize={6} />)
+
+      expect(titles()).toHaveLength(5)
+      expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
+    })
+
+    it('shows every card at once without a pageSize', () => {
+      renderWithProviders(<ReportGrid reports={five} />)
+
+      expect(titles()).toHaveLength(5)
+      expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument()
+    })
+  })
 })

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import Box from '@mui/material/Box'
 import Typography from '@mui/material/Typography'
+import { oldestFirst } from '../../domain/reportOrder'
 import { OPEN_STATUSES } from '../../domain/reportStatus'
 import { useAsync } from '../../hooks/useAsync'
 import * as reportsService from '../../services/reportsService'
@@ -11,8 +12,10 @@ import ReportGrid from './ReportGrid'
  * "Current incidents" block: location + status filters over the viewer's open reports.
  * Pages supply `renderActions(report, reload)` for role-specific buttons on each card.
  * Exposes `reloadRef` so a parent can refresh after an action taken elsewhere (e.g. a dialog).
+ * `pageSize` shows the cards a set at a time (see ReportGrid); changing a filter starts again from
+ * the first set. Incidents are listed oldest filed first, so the longest-waiting come first.
  */
-export default function IncidentBoard({ viewer, title = 'Current incidents', renderActions, showAuthor = false, onLoaded }) {
+export default function IncidentBoard({ viewer, title = 'Current incidents', renderActions, showAuthor = false, onLoaded, pageSize }) {
   const [location, setLocation] = useState('')
   const [status, setStatus] = useState('')
 
@@ -21,8 +24,9 @@ export default function IncidentBoard({ viewer, title = 'Current incidents', ren
       reportsService
         .listReports({ viewer, location, status: status || undefined, openOnly: true })
         .then((rows) => {
-          onLoaded?.(rows)
-          return rows
+          const ordered = oldestFirst(rows)
+          onLoaded?.(ordered)
+          return ordered
         }),
     [viewer, location, status],
   )
@@ -49,6 +53,8 @@ export default function IncidentBoard({ viewer, title = 'Current incidents', ren
         }}
       />
       <ReportGrid
+        key={`${location}|${status}`}
+        pageSize={pageSize}
         reports={data}
         loading={loading}
         error={error}
