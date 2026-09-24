@@ -25,6 +25,10 @@ resource "aws_rds_cluster" "this" {
   serverlessv2_scaling_configuration {
     max_capacity = 4.0
     min_capacity = 0.0
+    # At 0 ACU the cluster pauses when idle, and the first connection afterwards waits ~15 s for it
+    # to resume. The default pause is after 5 min; an hour keeps a working session warm while still
+    # costing nothing overnight. The first request after an hour idle still pays the ~15 s.
+    seconds_until_auto_pause = 3600
   }
 
   tags = local.app_tags

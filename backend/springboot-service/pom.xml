@@ -1,0 +1,238 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.example</groupId>
+    <!-- Must stay "springboot-service": infra/locals.tf keeps only target/springboot-service*.jar -->
+    <artifactId>springboot-service</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>Spring Boot Service</name>
+    <description>User role hierarchy served by Spring Boot on AWS Lambda</description>
+
+    <properties>
+        <!-- 21, not the java-service example's 25: the installed JDK is 21, and classes compiled
+             for 21 run unchanged on the java25 Lambda runtime. -->
+        <java.version>21</java.version>
+        <maven.compiler.source>${java.version}</maven.compiler.source>
+        <maven.compiler.target>${java.version}</maven.compiler.target>
+        <maven.compiler.release>${java.version}</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring-boot.version>3.5.16</spring-boot.version>
+        <aws-serverless.version>2.1.5</aws-serverless.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Aligns every Spring and Jackson version below -->
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring-boot.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- Spring MVC and Jackson. Tomcat is excluded: the serverless container never starts a
+             web server, and shipping ~4 MB of it inflates cold start on a 128 MB function. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-tomcat</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Tomcat used to supply this. The serverless container is built on the servlet API, and
+             nothing on Lambda provides it, so it comes back explicitly at compile scope. -->
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+        </dependency>
+
+        <!--
+            Tomcat, for local development only: `mvn spring-boot:run -Dspring-boot.run.profiles=local`
+            needs a real web server to open a port that curl can reach.
+
+            The `provided` scope is what makes this safe. maven-shade packages compile and runtime
+            scopes only, so Tomcat is on the classpath for spring-boot:run and absent from the
+            deployed jar — the cold-start cost of excluding it above is preserved. The check in the
+            build section verifies that rather than trusting it.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-tomcat</artifactId>
+            <scope>provided</scope>
+        </dependency>
+
+        <!-- Runs the Spring Boot app inside Lambda. Pulls in spring-cloud-function-serverless-web
+             transitively; do not declare that separately. -->
+        <dependency>
+            <groupId>com.amazonaws.serverless</groupId>
+            <artifactId>aws-serverless-java-container-springboot3</artifactId>
+            <version>${aws-serverless.version}</version>
+        </dependency>
+
+        <!-- AWS Lambda Core -->
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-lambda-java-core</artifactId>
+            <version>1.2.3</version>
+        </dependency>
+
+        <!-- JDBC and connection pooling. Chosen over spring-boot-starter-data-jpa: four entities and
+             hand-written SQL do not need Hibernate, and the context starts faster without it. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
+        <!-- PostgreSQL JDBC Driver. Runtime scope: the code compiles against java.sql only, so
+             nothing here should reference a Postgres class directly. -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- BCrypt password hashing. spring-security-crypto alone, not the full starter: this brings
+             the encoders and nothing else, so no filter chain or auto-configuration appears. -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
+
+        <!-- Testing - JUnit 5, AssertJ, Mockito, MockMvc -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.5.2</version>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <release>${java.version}</release>
+                    <parameters>true</parameters>
+                </configuration>
+            </plugin>
+
+            <!--
+                Runs the service locally on a real port:
+                    mvn spring-boot:run -Dspring-boot.run.profiles=local
+
+                Declared with no <executions> on purpose. Adding a `repackage` execution would
+                produce a Spring Boot fat jar, whose nested BOOT-INF layout the Lambda runtime
+                cannot read, and it would fight maven-shade for the main artifact.
+            -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring-boot.version}</version>
+                <configuration>
+                    <mainClass>com.example.Application</mainClass>
+                </configuration>
+            </plugin>
+
+            <!--
+                Builds the flat uber-jar that gets deployed.
+
+                Deliberately NOT spring-boot-maven-plugin's repackage goal: a Boot executable jar
+                puts classes under BOOT-INF/classes/ behind a custom loader, which the Lambda Java
+                runtime cannot read.
+
+                Also deliberately NOT the filter block from backend/_examples/java-service/pom.xml.
+                That one drops META-INF/* and META-INF/services/** wholesale, which is harmless for
+                a Gson service and fatal here: it would delete spring.factories before the appending
+                transformers below could merge it, and break every ServiceLoader lookup including
+                the SLF4J provider — leaving the function with no logs to explain why it died.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.6.0</version>
+                <configuration>
+                    <createDependencyReducedPom>false</createDependencyReducedPom>
+                    <filters>
+                        <filter>
+                            <artifact>*:*</artifact>
+                            <excludes>
+                                <!-- Several dependencies ship one; they collide in a flat jar -->
+                                <exclude>module-info.class</exclude>
+                                <!-- Signatures do not survive repackaging and break jar verification -->
+                                <exclude>META-INF/*.SF</exclude>
+                                <exclude>META-INF/*.DSA</exclude>
+                                <exclude>META-INF/*.RSA</exclude>
+                            </excludes>
+                        </filter>
+                    </filters>
+                    <transformers>
+                        <!-- Spring reads these descriptors from every jar; they must be merged,
+                             not overwritten by whichever jar the shade plugin unpacks last. -->
+                        <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                        <!-- spring.factories is a properties file whose keys repeat across jars
+                             (spring-boot and spring-boot-autoconfigure both declare
+                             ApplicationListener and EnvironmentPostProcessor). Appending leaves
+                             duplicate keys, and Properties keeps only the last one, which dropped
+                             the listener that loads application.properties: none of it applied on
+                             Lambda. This transformer merges the values of each key instead. -->
+                        <transformer implementation="org.springframework.boot.maven.PropertiesMergingResourceTransformer">
+                            <resource>META-INF/spring.factories</resource>
+                        </transformer>
+                        <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                            <resource>META-INF/spring.handlers</resource>
+                        </transformer>
+                        <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                            <resource>META-INF/spring.schemas</resource>
+                        </transformer>
+                        <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                            <resource>META-INF/spring.tooling</resource>
+                        </transformer>
+                        <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                            <resource>META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports</resource>
+                        </transformer>
+                        <!-- Same key-per-line format as spring.factories, so the same merge. -->
+                        <transformer implementation="org.springframework.boot.maven.PropertiesMergingResourceTransformer">
+                            <resource>META-INF/spring/aot.factories</resource>
+                        </transformer>
+                    </transformers>
+                </configuration>
+                <dependencies>
+                    <!-- Provides PropertiesMergingResourceTransformer. -->
+                    <dependency>
+                        <groupId>org.springframework.boot</groupId>
+                        <artifactId>spring-boot-maven-plugin</artifactId>
+                        <version>${spring-boot.version}</version>
+                    </dependency>
+                </dependencies>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

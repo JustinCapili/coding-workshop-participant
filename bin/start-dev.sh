@@ -252,10 +252,16 @@ echo -e "  ✓ Docker is running"
 # Check if LocalStack is running
 LOCALSTACK_OK=false
 LOCALSTACK_IMAGE="${LOCALSTACK_IMAGE:-localstack/localstack-pro}"
+# Keep idle Lambda containers for an hour instead of LocalStack's 10 min, so a Java function is not
+# cold-started (JVM + Spring, a few seconds) after every short break. The CLI forwards this to the
+# container; it takes effect whenever LocalStack is (re)started below.
+export LAMBDA_KEEPALIVE_MS="${LAMBDA_KEEPALIVE_MS:-3600000}"
 if curl -s http://localhost.localstack.cloud:4566/_localstack/health > /dev/null 2>&1; then
     # Verify the correct image is running
     RUNNING_IMAGE=$(docker inspect localstack-main --format '{{.Config.Image}}' 2>/dev/null || echo "")
-    if [ "$RUNNING_IMAGE" != "$LOCALSTACK_IMAGE" ]; then
+    # Compare the repository only: the CLI runs "localstack/localstack-pro:dev", and matching the tag
+    # too would restart LocalStack (and drop every deployed function) on every run.
+    if [ "${RUNNING_IMAGE%%:*}" != "${LOCALSTACK_IMAGE%%:*}" ]; then
         echo -e "  ⚠ LocalStack running with wrong image ($RUNNING_IMAGE), expected $LOCALSTACK_IMAGE. Restarting..."
         localstack stop
         docker stop localstack-main 2>/dev/null || true
@@ -397,9 +403,10 @@ BACKEND_OK=false
 if [ "$SERVICES_DEPLOYED" -ge "$SERVICES_ON_DISK" ] && [ "$SERVICES_DEPLOYED" -gt 0 ]; then
     LAMBDA_URLS=$(terraform output -json lambda_urls 2>/dev/null | grep -o 'http://[^"]*' | head -1 || echo "")
     if [ -n "$LAMBDA_URLS" ]; then
-        # Check if Lambda responds with any HTTP status (200 or 500 both mean it's running)
+        # Any 2xx-4xx means the function is up. 000 is unreachable, and a 5xx is a function that
+        # cannot start (a 502 here was a ClassNotFoundException), so both must trigger a redeploy.
         HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$LAMBDA_URLS" 2>/dev/null || echo "000")
-        if [ "$HTTP_STATUS" != "000" ]; then
+        if [ "$HTTP_STATUS" != "000" ] && [ "${HTTP_STATUS:0:1}" != "5" ]; then
             BACKEND_OK=true
             echo -e "  ✓ Backend is deployed and functions are responding ($SERVICES_DEPLOYED/$SERVICES_ON_DISK services)"
         else
@@ -494,6 +501,13 @@ if [ -f /tmp/proxy-server.pid ]; then
 elif lsof -iTCP:3001 -sTCP:LISTEN > /dev/null 2>&1; then
     lsof -ti:3001 | xargs kill 2>/dev/null
 fi
+
+# kill returns before the listener is gone; a JVM on 3001 (mvn spring-boot:run) takes a moment to
+# exit, and node would fail with EADDRINUSE if started at once.
+for _ in $(seq 1 20); do
+    lsof -iTCP:3001 -sTCP:LISTEN > /dev/null 2>&1 || break
+    sleep 0.5
+done
 
 echo -e "  Starting CORS proxy server..."
 nohup node "$SCRIPT_DIR/proxy-server.js" > /tmp/proxy-server.log 2>&1 &

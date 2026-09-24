@@ -210,7 +210,7 @@ When you create a new backend service, make sure to restart the development envi
 
 Data should persist reliably and maintain consistency.
 
-**Database Environment Variables**
+**Database Environment Variables**password
 
 Predefined environment variables are injected into each backend service automatically, simplifying the need to manage them manually:
 

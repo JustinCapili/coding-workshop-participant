@@ -105,6 +105,11 @@ const server = http.createServer((req, res) => {
     }
   };
 
+  // Bearer tokens must reach the backend; CloudFront forwards this header in the cloud.
+  if (headers.authorization) {
+    options.headers.authorization = headers.authorization;
+  }
+
   const proxyReq = protocol.request(options, (proxyRes) => {
     // Filter out CORS headers from Lambda response since we set our own
     const headers = { ...proxyRes.headers };

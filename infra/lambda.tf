@@ -8,7 +8,8 @@ module "lambda" {
   architectures   = [each.value.arch]
   handler         = each.value.handler
   runtime         = each.value.runtime
-  memory_size     = 128
+  # Per-runtime: a Spring Boot function needs far more than the 128 MB the scripted runtimes get by.
+  memory_size     = try(each.value.memory, 128)
   timeout         = 300
   tracing_mode    = "PassThrough"
   build_in_docker = false
@@ -95,12 +96,14 @@ resource "null_resource" "hot_reload" {
 resource "null_resource" "java_build" {
   for_each = local.backend_names_java
 
+  # Hash the sources' content, not their sizes: an edit that keeps a file the same length must
+  # still rebuild. target/ is excluded because the build writes there, and including it would make
+  # every apply rebuild again.
   triggers = {
     source_code_hash = md5(jsonencode({
       for file in fileset(format("%s/../backend/%s", path.module, each.key), "**/*") :
-      file => {
-        size = try(filesize(format("%s/../backend/%s/%s", path.module, each.key, file)), 0)
-      }
+      file => filemd5(format("%s/../backend/%s/%s", path.module, each.key, file))
+      if !startswith(file, "target/")
     }))
   }
 

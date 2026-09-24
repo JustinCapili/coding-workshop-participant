@@ -99,7 +99,7 @@ curl -X GET https://localhost:3001/api/{{service-name}} \
 
 Replace `{{service-name}}` with corresponding service name
 (e.g. `python-service`).
-
+    
 To tail logs in real-time:
 
 ```sh

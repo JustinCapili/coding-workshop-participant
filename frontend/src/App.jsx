@@ -1,35 +1,52 @@
-import { useState } from 'react'
-import reactLogo from '/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { Navigate, Route, Routes } from 'react-router-dom'
+import AppShell from './components/layout/AppShell'
+import RequireAuth from './components/routing/RequireAuth'
+import RequireRole from './components/routing/RequireRole'
+import { Role } from './domain/roles'
+import DashboardPage from './pages/DashboardPage'
+import LoginPage from './pages/LoginPage'
+import NotFoundPage from './pages/NotFoundPage'
+import SettingsPage from './pages/account/SettingsPage'
+import CommonCasesPage from './pages/engineer/CommonCasesPage'
+import RequestInventoryPage from './pages/engineer/RequestInventoryPage'
+import CreateReportPage from './pages/reports/CreateReportPage'
+import PreviousReportsPage from './pages/reports/PreviousReportsPage'
+import ReportDetailPage from './pages/reports/ReportDetailPage'
+import CreateEngineerPage from './pages/team/CreateEngineerPage'
+import OpenCasesPage from './pages/team/OpenCasesPage'
 
-function App() {
-  const [count, setCount] = useState(0)
-
+/**
+ * Route table (see spec "Suggested routes"). Everything except /login sits behind RequireAuth
+ * and the AppShell; Engineer+ and Faculty Admin+ pages are additionally gated by RequireRole.
+ */
+export default function App() {
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+
+      <Route element={<RequireAuth />}>
+        <Route element={<AppShell />}>
+          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route path="/dashboard" element={<DashboardPage />} />
+          <Route path="/reports/new" element={<CreateReportPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/common-cases" element={<CommonCasesPage />} />
+
+          <Route element={<RequireRole role={Role.ENGINEER} />}>
+            <Route path="/reports/previous" element={<PreviousReportsPage />} />
+            <Route path="/inventory/request" element={<RequestInventoryPage />} />
+          </Route>
+
+          <Route path="/reports/:reportId" element={<ReportDetailPage />} />
+
+          <Route element={<RequireRole role={Role.FACULTY_ADMIN} />}>
+            <Route path="/team/engineers/new" element={<CreateEngineerPage />} />
+            <Route path="/team/open-cases" element={<OpenCasesPage />} />
+          </Route>
+
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+      </Route>
+    </Routes>
   )
 }
-
-export default App

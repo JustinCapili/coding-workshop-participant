@@ -30,11 +30,20 @@ locals {
       arch    = "x86_64"
       runtime = "java25"
       handler = "com.example.Handler::handleRequest"
-      path    = abspath(format("%s/../backend/%s/target", path.module, name))
+      # Spring Boot + the serverless container + a Hikari pool: 128 MB either OOMs or takes minutes
+      # to cold start. 1 GB is the usual floor for a Spring Boot Lambda.
+      memory = 1024
+      path   = abspath(format("%s/../backend/%s/target", path.module, name))
       mvn_cmd = [
         format("cd %s", abspath(format("%s/../backend/%s", path.module, name))),
         "mvn clean package -DskipTests",
-        format("find ./target ! -name '%s*.jar' -delete", name),
+        # -mindepth 1: without it find also tries to delete ./target itself, which still holds the
+        # jar, and the provisioner fails with "Directory not empty".
+        format("find ./target -mindepth 1 ! -name '%s*.jar' -delete", name),
+        # The function code is this directory, and the Java runtime's classpath is /var/task for
+        # classes plus /var/task/lib/*.jar. A jar left at the root is never loaded
+        # (ClassNotFoundException: com.example.Handler), so it goes under lib/.
+        format("mkdir -p ./target/lib && mv ./target/%s*.jar ./target/lib/", name),
       ]
     }
   }
@@ -111,6 +120,10 @@ locals {
     MONGO_NAME    = data.aws_caller_identity.this.id == "000000000000" ? "mongo" : try(one(aws_docdb_cluster.this.*.database_name), "")
     MONGO_USER    = data.aws_caller_identity.this.id == "000000000000" ? "" : try(one(aws_docdb_cluster.this.*.master_username), "")
     MONGO_PASS    = data.aws_caller_identity.this.id == "000000000000" ? "" : try(one(aws_docdb_cluster.this.*.master_password), "")
+    # Cloud only: stop the JIT at C1, which AWS recommends for Java Lambdas; much less compile work
+    # during a cold start. Empty locally, so lambda.tf drops it and LocalStack's own
+    # JAVA_TOOL_OPTIONS (a -javaagent) is left alone. Non-JVM runtimes ignore it.
+    JAVA_TOOL_OPTIONS = data.aws_caller_identity.this.id == "000000000000" ? "" : "-XX:+TieredCompilation -XX:TieredStopAtLevel=1"
   }
   lambda_role_arn = format(
     "arn:%s:iam::%s:role/%s-lambda-%s-%s",
